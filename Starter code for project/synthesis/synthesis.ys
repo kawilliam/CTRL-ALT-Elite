@@ -1,0 +1,39 @@
+#!/bin/bash
+
+plugin -i slang
+
+# first setup the include paths
+verilog_defaults -add -Icode/
+
+read_slang -Icode \
+    code/branch_control.sv \
+    code/decode.sv \
+    code/execute.sv \
+    code/fetch.sv \
+    code/igen.sv \
+    code/main_memory.sv \
+    code/memory.sv \
+    code/memory_controller.sv \
+    code/control.sv \
+    code/register_file.sv \
+    code/stall_flush_logic.sv \
+    code/writeback.sv \
+    code/rv_core.sv 
+
+    echo on
+    hierarchy -check -top rv_core
+    select -module rv_core
+    select t:*
+    select -clear
+    show -format dot -prefix rv_core_show rv_core
+    proc; opt
+    memory; opt
+    fsm; opt
+    techmap; opt 
+    flatten; opt
+    dfflibmap -liberty synthesis/sky130nm.lib
+    abc -liberty synthesis/sky130nm.lib
+    setundef -zero
+    write_verilog synth.v
+    write_json synth.json
+    stat
