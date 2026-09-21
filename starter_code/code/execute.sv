@@ -73,17 +73,17 @@ module alu #(
     always_comb begin
         case (alusel_i)
             // For branch, jal, and jalr instructions calculate new PC
-            `ALU_ADD: res_o = /* LH6??? */
-            `ALU_SUB: res_o = /* LH6??? */
-            `ALU_AND: res_o = /* LH6??? */
-            `ALU_OR:  res_o = /* LH6??? */
-            `ALU_XOR: res_o = /* LH6??? */
-            `ALU_SLL: res_o = /* LH6??? */
-            `ALU_SRL: res_o = /* LH6??? */
-            `ALU_SRA: res_o = /* LH6??? */
-            `ALU_SLT:  res_o = /* LH6??? */
-            `ALU_SLTU: res_o = /* LH6??? */
-            default: /* LH6??? */
+            `ALU_ADD: res_o = rs1_i + rs2_i;/* LH6??? */
+            `ALU_SUB: res_o = rs1_i - rs2_i;/* LH6??? */
+            `ALU_AND: res_o = rs1_i & rs2_i;/* LH6??? */
+            `ALU_OR:  res_o = rs1_i | rs2_i;/* LH6??? */
+            `ALU_XOR: res_o = rs1_i ^ rs2_i;/* LH6??? */
+            `ALU_SLL: res_o = rs1_i << rs2_i;/* LH6??? */
+            `ALU_SRL: res_o = rs1_i >> rs2_i;/* LH6??? */
+            `ALU_SRA: res_o = rs1_i >>> rs2_i;/* LH6??? */
+            `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;/* LH6??? */
+            `ALU_SLTU: res_o = (rs1_i < rs2_i) ? 32'd1 : 32'd0;/* LH6??? */
+            default: res_o = '0;/* LH6??? */
         endcase
     end
 endmodule : alu
