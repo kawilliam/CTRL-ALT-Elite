@@ -28,6 +28,7 @@ module rv_core #(
     logic [DWIDTH-1:0] f_insn;
     logic pc_en;
     logic stall, flush;
+    logic jump_branch;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
@@ -49,10 +50,13 @@ module rv_core #(
         .rst(reset),
         .next_pc_i(f_pc),
         .pc_en_i(1'b1),
-        .jump_branch_i(/*LH1???*/),
+        .jump_branch_i(jump_branch),
         .pc_o(pc),
         .insn_o()
     );
+
+    assign jump_branch = e_brtaken || (d_opcode == `J_TYPE) || (d_opcode == `I_TYPE_JALR);
+    assign f_pc = jump_branch ? e_res : pc;
 
     // ---------- DECODE STAGE ---------- //
     // decode signals
