@@ -65,8 +65,8 @@ assign regwren_o = (opcode_i == `R_TYPE)       || (opcode_i == `I_TYPE)       ||
                    (opcode_i == `I_TYPE_L)     || (opcode_i == `I_TYPE_JALR)  ||
                    (opcode_i == `U_TYPE_LUI)   || (opcode_i == `U_TYPE_AUIPC) ||
                    (opcode_i == `J_TYPE);
-assign rs1sel_o = (opcode_i == `U_TYPE_AUIPC);
-assign rs2sel_o = !((opcode_i == `R_TYPE) || (opcode_i == `B_TYPE));
+assign rs1sel_o = 0;
+assign rs2sel_o = 0;
 
   always_comb begin
     case (opcode_i)

@@ -74,11 +74,15 @@ module alu #(
         case (alusel_i)
             // For branch, jal, and jalr instructions calculate new PC
             // TODO: REVISIT THIS AND MAKE SENSE - MIGHT WANT TO INCLUDE AUIPIC HERE
-            `ALU_ADD: res_o = (opcode_i == `B_TYPE || opcode_i == `J_TYPE)
-                                  ? (pc_i + imm_i)
-                              : (opcode_i == `I_TYPE_JALR)
+            `ALU_ADD: res_o = (opcode_i == `B_TYPE 
+                            || opcode_i == `J_TYPE 
+                            || opcode_i == `U_TYPE_AUIPC)
+                                ? (pc_i + imm_i)
+                                : (opcode_i == `I_TYPE_JALR)
                                   ? ((rs1_i + imm_i) & ~32'd1)
-                                  : (rs1_i + rs2_i);
+                                  : (opcode_i == `R_TYPE)
+                                    ? (rs1_i + rs2_i)
+                                    : (rs1_i + imm_i);
             `ALU_SUB: res_o = rs1_i - rs2_i;
             `ALU_AND: res_o = rs1_i & rs2_i;
             `ALU_OR:  res_o = rs1_i | rs2_i;

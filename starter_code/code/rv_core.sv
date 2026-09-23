@@ -149,10 +149,9 @@ module rv_core #(
 
     // Logic hole 5 (LH5): Complete the logic to determine the inputs to the ALU
     //                     alu_A, mux_B, alu_B
-
-    assign alu_A = c_rs1sel ? d_pc : r_rs1data; /* LH5??? */
+    assign alu_A = r_rs1data; /* LH5??? */
     assign mux_B = r_rs2data; /* LH5??? */
-    assign alu_B =  c_rs2sel ? d_imm : r_rs2data; /* LH5??? */
+     assign alu_B = r_rs2data; /* LH5??? */
 
     // Logic hole 6 (LH6): Please see execute.sv for details on LH6
     // Execute instantiation
