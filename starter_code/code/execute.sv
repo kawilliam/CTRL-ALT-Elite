@@ -73,17 +73,22 @@ module alu #(
     always_comb begin
         case (alusel_i)
             // For branch, jal, and jalr instructions calculate new PC
-            `ALU_ADD: res_o = rs1_i + rs2_i;/* LH6??? */
-            `ALU_SUB: res_o = rs1_i - rs2_i;/* LH6??? */
-            `ALU_AND: res_o = rs1_i & rs2_i;/* LH6??? */
-            `ALU_OR:  res_o = rs1_i | rs2_i;/* LH6??? */
-            `ALU_XOR: res_o = rs1_i ^ rs2_i;/* LH6??? */
-            `ALU_SLL: res_o = rs1_i << rs2_i;/* LH6??? */
-            `ALU_SRL: res_o = rs1_i >> rs2_i;/* LH6??? */
-            `ALU_SRA: res_o = rs1_i >>> rs2_i;/* LH6??? */
-            `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;/* LH6??? */
-            `ALU_SLTU: res_o = (rs1_i < rs2_i) ? 32'd1 : 32'd0;/* LH6??? */
-            default: res_o = '0;/* LH6??? */
+            // TODO: REVISIT THIS AND MAKE SENSE - MIGHT WANT TO INCLUDE AUIPIC HERE
+            `ALU_ADD: res_o = (opcode_i == `B_TYPE || opcode_i == `J_TYPE)
+                                  ? (pc_i + imm_i)
+                              : (opcode_i == `I_TYPE_JALR)
+                                  ? ((rs1_i + imm_i) & ~32'd1)
+                                  : (rs1_i + rs2_i);
+            `ALU_SUB: res_o = rs1_i - rs2_i;
+            `ALU_AND: res_o = rs1_i & rs2_i;
+            `ALU_OR:  res_o = rs1_i | rs2_i;
+            `ALU_XOR: res_o = rs1_i ^ rs2_i;
+            `ALU_SLL: res_o = rs1_i << rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
+            `ALU_SRL: res_o = rs1_i >> rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
+            `ALU_SRA: res_o = $signed(rs1_i) >>> rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
+            `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;
+            `ALU_SLTU: res_o = (rs1_i < rs2_i) ? 32'd1 : 32'd0;
+            default: res_o = '0;
         endcase
     end
 endmodule : alu
