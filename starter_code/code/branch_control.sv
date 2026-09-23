@@ -29,7 +29,7 @@
     output logic brlt_o
 );
 
-    always_comb begin
+    always_comb begin 
         // Check for branch type instruction
         if (opcode_i == `B_TYPE) begin
             // BrEq = 1 if rs1 and rs2 are equal, otherwise its zero, BrUn is irrelavant
