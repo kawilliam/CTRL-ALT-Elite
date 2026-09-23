@@ -25,7 +25,8 @@ module top_tb;
       .DWIDTH(DWIDTH)
    ) hut (
       .clk(clk),
-      .reset(rst)
+      .reset(rst),
+      .busy()
    );
 
    

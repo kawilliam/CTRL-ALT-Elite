@@ -31,7 +31,14 @@
     */
     always_comb begin
         // Muxing the source of writeback data.
-        writeback_data_o = /* LH7??? */
+        // writeback_data_o = /* LH7??? */
+        case (wbsel_i)
+            `WB_ALU: writeback_data_o = alu_res_i;      // arithmetic / auipc
+            `WB_MEM: writeback_data_o = memory_data_i;  // loads
+            `WB_PC4: writeback_data_o = pc_i + 32'd4;   // jal / jalr link
+            `WB_IMM: writeback_data_o = imm_i;          // lui
+            default: writeback_data_o = alu_res_i;
+        endcase
     end
 
 endmodule : writeback
