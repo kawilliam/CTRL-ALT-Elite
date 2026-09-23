@@ -7,7 +7,7 @@ VERIF_DIR      := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 DESIGN_DIR     := $(abspath $(VERIF_DIR)/../code)
 TESTS_BASE_DIR := $(VERIF_DIR)/tests
 SIM_DIR        := $(VERIF_DIR)/Sim
-OBJ_DIR        := $(VERIF_DIR)/obj_dir
+OBJ_DIR         = $(VERIF_DIR)/obj_dir_$(TOP_MODULE)
 
 # --- COMPILER CONFIG ---
 VERILATOR ?= verilator
@@ -68,6 +68,7 @@ HAS_FLUSH := $(shell grep -E -q '\b(logic|wire|reg|input|output)\s+.*?\b(flush|s
 EXTRA_FLAGS += $(HAS_STALL) $(HAS_FLUSH)
 
 # --- VERILATOR BUILD ---
+# Delete DMEM PATH and DLINE_COUNT so verilator doesnt keep rebuilding hw model
 compile-tb: $(SIM_DIR)
 	@if [ "$(QUIET_BUILD)" != "1" ]; then \
 		echo "------------------------------------------------------------"; \
@@ -86,20 +87,18 @@ compile-tb: $(SIM_DIR)
 		-CFLAGS "-DVM_PREFIX=V$(TOP_MODULE) -DVL_TOP=V$(TOP_MODULE)" \
 		-DSIMULATION \
 		-DMEM_DEPTH=1048576 \
-		-DMEM_PATH=\"$(FULL_PATH)\" \
-		-DLINE_COUNT=$(LINE_COUNT) \
 		$(TRACE_FLAGS) \
 		$(TB_SRC) \
 		$(DESIGN_SRCS) \
 		$(VERIF_DIR)/tb_main_verilator.cpp \
 		--Mdir $(OBJ_DIR) \
 		-MAKEFLAGS "-s --no-print-directory" \
-		--build -o Vtop_tb
+		--build -o V$(TOP_MODULE)
 
 # --- SIMULATION EXECUTION ---
 run: compile-tb
 	@LOG_FILE="$(VERIF_DIR)/_results.txt"; \
-	$(OBJ_DIR)/Vtop_tb > sim_out.tmp 2>&1; \
+	$(OBJ_DIR)/V$(TOP_MODULE) +MEM_PATH=$(FULL_PATH) > sim_out.tmp 2>&1; \
 	TIMESTAMP=$$(date '+%Y-%m-%d %H:%M:%S'); \
 	CYCLES=$$(sed -n 's/.*Total Cycles[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' sim_out.tmp | tail -n1); \
 	STALLS=$$(sed -n 's/.*Stalls[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' sim_out.tmp | tail -n1); \
@@ -157,7 +156,6 @@ sim-all:
 	@for dir in $(ALL_TEST_DIRS); do \
 		echo $$dir; \
 		$(MAKE) run-all TEST_DIR=$$dir DT=$(DT); \
-		mv obj_dir obj_dir_$$dir; \
 	done
 
 # ==============================================================================
