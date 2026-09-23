@@ -36,12 +36,6 @@ LINE_COUNT := $(strip $(shell [ -f "$(FULL_PATH)" ] && grep -c '[^[:space:]]' "$
 # Automatically collect all .sv files in design/code/
 DESIGN_SRCS := $(wildcard $(DESIGN_DIR)/*.sv)
 
-# Automatically inspect hut.sv for signals before compiling
-HAS_STALL := $(shell grep -E -q '\bstall\b'  path/to/hut.sv && echo "-DHAS_STALL_SIGNAL")
-HAS_FLUSH := $(shell grep -E -q '\bflush\b'  path/to/hut.sv && echo "-DHAS_FLUSH_SIGNAL")
-
-EXTRA_FLAGS += $(HAS_FLUSH) $(HAS_STALL)
-
 .PHONY: all clean help run run-all sim sim-all $(SIM_DIR)
 
 all: sim-all
@@ -66,6 +60,10 @@ HAS_STALL := $(shell grep -E -q '\b(logic|wire|reg|input|output)\s+.*?\bstall\b'
 HAS_FLUSH := $(shell grep -E -q '\b(logic|wire|reg|input|output)\s+.*?\b(flush|squash)\b' $(RV_CORE_FILE) 2>/dev/null && echo "-DHAS_FLUSH_SIGNAL")
 
 EXTRA_FLAGS += $(HAS_STALL) $(HAS_FLUSH)
+
+# top_tb/rv_official_tb leave rv_core's synthesis-only 'busy' output unconnected.
+# Verilator makes warnings fatal, so allow this one rather than editing code/.
+EXTRA_FLAGS += -Wno-PINMISSING
 
 # --- VERILATOR BUILD ---
 compile-tb: $(SIM_DIR)
@@ -99,7 +97,7 @@ compile-tb: $(SIM_DIR)
 # --- SIMULATION EXECUTION ---
 run: compile-tb
 	@LOG_FILE="$(VERIF_DIR)/_results.txt"; \
-	$(OBJ_DIR)/Vtop_tb > sim_out.tmp 2>&1; \
+	$(OBJ_DIR)/Vtop_tb +MEM_PATH=$(FULL_PATH) > sim_out.tmp 2>&1; \
 	TIMESTAMP=$$(date '+%Y-%m-%d %H:%M:%S'); \
 	CYCLES=$$(sed -n 's/.*Total Cycles[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' sim_out.tmp | tail -n1); \
 	STALLS=$$(sed -n 's/.*Stalls[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' sim_out.tmp | tail -n1); \
@@ -178,11 +176,14 @@ tb-%: $(SIM_DIR)
 	@# -y and +librescan forces Verilator to dynamically find and extract
 	@# ONLY the hardware files needed by your testbench out of the code dir.
 	$(VERILATOR) --binary -sv \
+		-Wno-PINMISSING \
+		-DMEM_DEPTH=1048576 \
 		--timing \
 		--trace \
 		--timescale 1ns/1ps \
 		-y $(DESIGN_DIR) \
 		+librescan \
+		-I$(DESIGN_DIR) \
 		-I$(VERIF_DIR) \
 		--top-module $* \
 		$(TRACE_FLAGS) \

@@ -32,15 +32,15 @@ parameter logic [31:0] ZERO = 32'd0;
 `define M_W ctrl_reg[2]
 
  // Opcode constants
-`define R_TYPE       7'b0110011
-`define I_TYPE       7'b0010011
-`define I_TYPE_L     7'b0000011
-`define I_TYPE_JALR  7'b1100111
-`define S_TYPE       7'b0100011
-`define B_TYPE       7'b1100011
-`define J_TYPE       7'b1101111
-`define U_TYPE_LUI   7'b0110111
-`define U_TYPE_AUIPC 7'b0010111
+`define R_TYPE       7'b0110011 // Arithmetics
+`define I_TYPE       7'b0010011 // Immediate Ariths
+`define I_TYPE_L     7'b0000011 // Immediate loads (add imm to addr)
+`define I_TYPE_JALR  7'b1100111 // NOT IN SLIDES -> Same as J-TYPE but calcs addr from reg
+`define S_TYPE       7'b0100011 // Stores
+`define B_TYPE       7'b1100011 // Branch
+`define J_TYPE       7'b1101111 // Jump - Calc add by adding offset to PC
+`define U_TYPE_LUI   7'b0110111 // Loads imm to top 20 bits of reg 
+`define U_TYPE_AUIPC 7'b0010111 // loads imm + PC into reg
 
 // Reuseable instruction constants
 `define OPCODE insn_i[6:0]

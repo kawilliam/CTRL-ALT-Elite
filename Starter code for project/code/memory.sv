@@ -20,6 +20,8 @@
  * 2) DWIDTH data output data_o
  */
 
+// Is this both IMEM and DMEM???
+
 module memory #(
     parameter int AWIDTH = 32,
     parameter int DWIDTH = 32,

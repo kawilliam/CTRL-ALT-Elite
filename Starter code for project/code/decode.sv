@@ -42,8 +42,8 @@ module decode #(
   output logic [4:0] rs2_o,
   output logic [6:0] funct7_o,
   output logic [2:0] funct3_o,
-  output logic [4:0] shamt_o,
-  output logic [DWIDTH-1:0] imm_o
+  output logic [4:0] shamt_o, // Not being driven?
+  output logic [DWIDTH-1:0] imm_o // Not being driven?
 );
     always_comb begin
         pc_o = pc_i;
@@ -56,9 +56,11 @@ module decode #(
         // Logic hole 2 (LH2): Determine the assignment of source register operands
         //               rs1_o and rs2_o.
         // Source register rs1 for R-type, I-type, S-type, B-type instructions.
-        rs1_o = /* LH2???? */
+        rs1_o = (`OPCODE != `U_TYPE_LUI && `OPCODE != `U_TYPE_AUIPC &&
+                 `OPCODE != `J_TYPE) ? insn_i[19:15] : 5'd0;
         // Source registter rs2 for R-type, S-type, B-type instructions.
-        rs2_o = /* LH2???? */
+        rs2_o = (`OPCODE == `R_TYPE || `OPCODE == `S_TYPE ||
+                 `OPCODE == `B_TYPE) ? insn_i[24:20] : 5'd0;
 
         // FUNCT7 for R-type and I-type shift (slli, srli, srai) instructions.
         funct7_o = `FUNCT7;

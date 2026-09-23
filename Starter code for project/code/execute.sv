@@ -15,6 +15,8 @@
  * 2) 1-bit branch taken signal brtaken_o
  */
 
+ // WHY IS THE FILE CALLED execute.sv....
+
 `include "constants.svh"
 
 module alu #(
@@ -52,18 +54,20 @@ module alu #(
 
     // Combinational procedural block for branch control
     always_comb begin
+        brtaken_o = 1'b0;
         if (opcode_i == `B_TYPE) begin
+            // branch_control already picked signed vs unsigned from funct3,
+            // so brlt is the correct comparison for both blt and bltu.
             case (funct3_i)
-                /* LH6: Complete the branch control logic to determine brtaken_o */
-                `F3_BEQ: brtaken_o = /* LH6??? */;
-                `F3_BNE: brtaken_o = /* LH6??? */;
-                `F3_BLT: brtaken_o = /* LH6??? */;
-                `F3_BLTU: brtaken_o = /* LH6??? */;
-                `F3_BGE: brtaken_o = /* LH6??? */
-                `F3_BGEU: brtaken_o = /* LH6??? */
+                `F3_BEQ:  brtaken_o = breq;
+                `F3_BNE:  brtaken_o = !breq;
+                `F3_BLT:  brtaken_o = brlt;
+                `F3_BLTU: brtaken_o = brlt;
+                `F3_BGE:  brtaken_o = !brlt;
+                `F3_BGEU: brtaken_o = !brlt;
+                default:  brtaken_o = 1'b0;
             endcase
         end
-        /* LH6??? */
     end
 
     /*
@@ -72,17 +76,28 @@ module alu #(
     always_comb begin
         case (alusel_i)
             // For branch, jal, and jalr instructions calculate new PC
-            `ALU_ADD: res_o = /* LH6??? */
-            `ALU_SUB: res_o = /* LH6??? */
-            `ALU_AND: res_o = /* LH6??? */
-            `ALU_OR:  res_o = /* LH6??? */
-            `ALU_XOR: res_o = /* LH6??? */
-            `ALU_SLL: res_o = /* LH6??? */
-            `ALU_SRL: res_o = /* LH6??? */
-            `ALU_SRA: res_o = /* LH6??? */
-            `ALU_SLT:  res_o = /* LH6??? */
-            `ALU_SLTU: res_o = /* LH6??? */
-            default: /* LH6??? */
+            `ALU_ADD: begin
+                if (opcode_i == `B_TYPE || opcode_i == `J_TYPE)
+                    // Target is PC-relative. Taken from pc_i/imm_i directly so
+                    // that ports A/B stay free to carry rs1/rs2 for the compare.
+                    res_o = pc_i + imm_i;
+                else if (opcode_i == `I_TYPE_JALR)
+                    // jalr clears bit 0 of the computed target per the spec.
+                    res_o = (rs1_i + imm_i) & ~32'd1;
+                else
+                    res_o = rs1_i + rs2_i;
+            end
+            `ALU_SUB: res_o = rs1_i - rs2_i;
+            `ALU_AND: res_o = rs1_i & rs2_i;
+            `ALU_OR:  res_o = rs1_i | rs2_i;
+            `ALU_XOR: res_o = rs1_i ^ rs2_i;
+            // Shift amount is the low 5 bits: rs2 data for R-type, shamt for I-type.
+            `ALU_SLL: res_o = rs1_i << rs2_i[4:0];
+            `ALU_SRL: res_o = rs1_i >> rs2_i[4:0];
+            `ALU_SRA: res_o = $signed(rs1_i) >>> rs2_i[4:0];
+            `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;
+            `ALU_SLTU: res_o = (rs1_i < rs2_i) ? 32'd1 : 32'd0;
+            default: res_o = '0;
         endcase
     end
 endmodule : alu
