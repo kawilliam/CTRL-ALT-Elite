@@ -55,7 +55,7 @@ module rv_core #(
         .insn_o()
     );
 
-    assign jump_branch = e_brtaken || (d_opcode == `J_TYPE) || (d_opcode == `I_TYPE_JALR);
+    assign jump_branch = e_brtaken || c_pcsel;
     assign f_pc = jump_branch ? e_res : pc;
 
     // ---------- DECODE STAGE ---------- //
@@ -98,8 +98,8 @@ module rv_core #(
 
     // immediate generator signals
     logic [DWIDTH - 1:0] igen_imm;
-    assign d_imm = igen_imm;
-    assign d_shamt = igen_imm[4:0];
+    assign d_imm = c_immsel ? igen_imm : '0;
+    assign d_shamt = d_imm[4:0];
 
     // Logic hole 3 (LH3): Please see igen.sv for details on LH3
     // immediate generator instantiation

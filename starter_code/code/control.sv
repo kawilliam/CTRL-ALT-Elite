@@ -35,15 +35,15 @@ module control #(
     input logic [2:0] funct3_i,
 
     // outputs
-    output logic pcsel_o,
-    output logic immsel_o,
-    output logic regwren_o,
-    output logic rs1sel_o,
-    output logic rs2sel_o,
-    output logic memren_o,
-    output logic memwren_o,
-    output logic [1:0] wbsel_o,
-    output logic [3:0] alusel_o
+    output logic pcsel_o, // This is to determine whether to use PC + 4 or Jump
+    output logic immsel_o, // Whether to use imm or reg val
+    output logic regwren_o, // Reg write enable - whther to write to reg file
+    output logic rs1sel_o, // CONFUSED
+    output logic rs2sel_o, // CONFUSED
+    output logic memren_o, // Whether to read from memory
+    output logic memwren_o, // Whether to write to memory
+    output logic [1:0] wbsel_o, // What to write to reg file - ALU res, mem data, pc+4, or imm
+    output logic [3:0] alusel_o // Value drives operation done by ALU
 );
 
 assign memren_o = (opcode_i == `I_TYPE_L);

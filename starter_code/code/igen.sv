@@ -32,18 +32,15 @@ module igen #(
       `I_TYPE_JALR: begin
         imm_o = {{20{insn_i[31]}}, `ITYPE_IMM};
       end
-      // For slli/srli/srai the low 5 bits of this are already the shamt field.
       `I_TYPE: begin
         imm_o = {{20{insn_i[31]}}, `ITYPE_IMM};
       end
       `S_TYPE: begin
         imm_o = {{20{insn_i[31]}}, `STYPE_IMM};
       end
-      // B/J immediates encode a 2-byte-aligned offset, so bit 0 is an implicit 0.
       `B_TYPE: begin
         imm_o = {{19{insn_i[31]}}, `BTYPE_IMM, 1'b0};
       end
-      // U-type already sits in the upper 20 bits; no sign extension needed.
       `U_TYPE_LUI, `U_TYPE_AUIPC: begin
         imm_o = `UTYPE_IMM;
       end

@@ -83,9 +83,9 @@ module alu #(
             `ALU_AND: res_o = rs1_i & rs2_i;
             `ALU_OR:  res_o = rs1_i | rs2_i;
             `ALU_XOR: res_o = rs1_i ^ rs2_i;
-            `ALU_SLL: res_o = rs1_i << rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
-            `ALU_SRL: res_o = rs1_i >> rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
-            `ALU_SRA: res_o = $signed(rs1_i) >>> rs2_i; // TODO: DO we need to take bits 4:0 for rs2_i?
+            `ALU_SLL: res_o = rs1_i << rs2_i[4:0]; // TODO: Verify why we need 4:0
+            `ALU_SRL: res_o = rs1_i >> rs2_i[4:0];
+            `ALU_SRA: res_o = $signed(rs1_i) >>> rs2_i[4:0];
             `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;
             `ALU_SLTU: res_o = (rs1_i < rs2_i) ? 32'd1 : 32'd0;
             default: res_o = '0;
