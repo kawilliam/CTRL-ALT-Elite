@@ -56,12 +56,12 @@ module alu #(
         if (opcode_i == `B_TYPE) begin
             case (funct3_i)
                 /* LH6: Complete the branch control logic to determine brtaken_o */
-                `F3_BEQ: brtaken_o = (rs1_i == rs2_i);
-                `F3_BNE: brtaken_o = (rs1_i != rs2_i);
-                `F3_BLT: brtaken_o = ($signed(rs1_i) < $signed(rs2_i));
-                `F3_BLTU: brtaken_o = (rs1_i < rs2_i);
-                `F3_BGE: brtaken_o = ($signed(rs1_i) >= $signed(rs2_i));
-                `F3_BGEU: brtaken_o = (rs1_i >= rs2_i);
+                `F3_BEQ: brtaken_o = breq;
+                `F3_BNE: brtaken_o = !(breq);
+                `F3_BLT: brtaken_o = brlt;
+                `F3_BLTU: brtaken_o = brlt;
+                `F3_BGE: brtaken_o = !(brlt);
+                `F3_BGEU: brtaken_o = !(brlt);
                 default: brtaken_o = 1'b0;
             endcase
         end
