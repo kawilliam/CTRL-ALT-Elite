@@ -73,7 +73,6 @@ module alu #(
     always_comb begin
         case (alusel_i)
             // For branch, jal, and jalr instructions calculate new PC
-            // TODO: REVISIT THIS AND MAKE SENSE - MIGHT WANT TO INCLUDE AUIPIC HERE
             `ALU_ADD: res_o = (opcode_i == `B_TYPE 
                             || opcode_i == `J_TYPE 
                             || opcode_i == `U_TYPE_AUIPC)
@@ -87,7 +86,7 @@ module alu #(
             `ALU_AND: res_o = rs1_i & rs2_i;
             `ALU_OR:  res_o = rs1_i | rs2_i;
             `ALU_XOR: res_o = rs1_i ^ rs2_i;
-            `ALU_SLL: res_o = rs1_i << rs2_i[4:0]; // TODO: Verify why we need 4:0
+            `ALU_SLL: res_o = rs1_i << rs2_i[4:0];
             `ALU_SRL: res_o = rs1_i >> rs2_i[4:0];
             `ALU_SRA: res_o = $signed(rs1_i) >>> rs2_i[4:0];
             `ALU_SLT:  res_o = ($signed(rs1_i) < $signed(rs2_i)) ? 32'd1 : 32'd0;

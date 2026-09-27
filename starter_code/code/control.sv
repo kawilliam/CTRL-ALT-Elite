@@ -38,8 +38,8 @@ module control #(
     output logic pcsel_o, // This is to determine whether to use PC + 4 or Jump
     output logic immsel_o, // Whether to use imm or reg val
     output logic regwren_o, // Reg write enable - whther to write to reg file
-    output logic rs1sel_o, // CONFUSED
-    output logic rs2sel_o, // CONFUSED
+    output logic rs1sel_o, // 0
+    output logic rs2sel_o, // 0
     output logic memren_o, // Whether to read from memory
     output logic memwren_o, // Whether to write to memory
     output logic [1:0] wbsel_o, // What to write to reg file - ALU res, mem data, pc+4, or imm
@@ -103,11 +103,11 @@ assign rs2sel_o = 0;
         alusel_o = `ALU_ADD;
       end
       `S_TYPE: begin
-        wbsel_o = `WB_ALU;   // don't care, regwren_o is 0
+        wbsel_o = `WB_ALU;
         alusel_o = `ALU_ADD;
       end
       `B_TYPE: begin
-        wbsel_o = `WB_ALU;   // don't care, regwren_o is 0
+        wbsel_o = `WB_ALU;
         alusel_o = `ALU_ADD;
       end
       `I_TYPE_JALR, `J_TYPE: begin
