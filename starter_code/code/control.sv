@@ -38,8 +38,8 @@ module control #(
     output logic pcsel_o, // This is to determine whether to use PC + 4 or Jump
     output logic immsel_o, // Whether to use imm or reg val
     output logic regwren_o, // Reg write enable - whther to write to reg file
-    output logic rs1sel_o, // 0
-    output logic rs2sel_o, // 0
+    output logic rs1sel_o, // ALU port A: 0 = rs1 register
+    output logic rs2sel_o, // ALU port B: 0 = rs2 register, 1 = immediate
     output logic memren_o, // Whether to read from memory
     output logic memwren_o, // Whether to write to memory
     output logic [1:0] wbsel_o, // What to write to reg file - ALU res, mem data, pc+4, or imm
@@ -65,8 +65,10 @@ assign regwren_o = (opcode_i == `R_TYPE)       || (opcode_i == `I_TYPE)       ||
                    (opcode_i == `I_TYPE_L)     || (opcode_i == `I_TYPE_JALR)  ||
                    (opcode_i == `U_TYPE_LUI)   || (opcode_i == `U_TYPE_AUIPC) ||
                    (opcode_i == `J_TYPE);
-assign rs1sel_o = 0;
-assign rs2sel_o = 0;
+// ALU port A is always the rs1 register, auipc is handled explicitly inside the ALU
+assign rs1sel_o = 1'b0;
+// ALU port B takes the immediate for every format that has one. R-type needs the
+assign rs2sel_o = !((opcode_i == `R_TYPE) || (opcode_i == `B_TYPE));
 
   always_comb begin
     case (opcode_i)
