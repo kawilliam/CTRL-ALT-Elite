@@ -22,4 +22,7 @@ module stall_flush_logic (
    output logic flush_o
 );
   // To be filled in Stage 2
+  assign pc_en_o = !hazard_i;
+  assign stall_o = hazard_i;
+  assign flush_o = br_jump_i;
 endmodule: stall_flush_logic

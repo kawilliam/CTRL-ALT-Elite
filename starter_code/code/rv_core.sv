@@ -30,6 +30,9 @@ module rv_core #(
     logic stall, flush;
     logic jump_branch;
 
+    assign jump_branch = e_brtaken || c_pcsel;
+    assign f_pc = jump_branch ? e_res : pc;
+
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
     stall_flush_logic stall_flush (
@@ -55,8 +58,24 @@ module rv_core #(
         .insn_o()
     );
 
-    assign jump_branch = e_brtaken || c_pcsel;
-    assign f_pc = jump_branch ? e_res : pc;
+    // ---------- F/D ---------- //
+    // F/D signals
+    logic [AWIDTH-1:0] fd_pc;
+    logic [DWIDTH-1:0] fd_insn;
+
+    // F/D instantiation
+    fd_reg #(
+        .AWIDTH(32),
+        .DWIDTH(32)
+    ) fd_reg1 (
+      .clk(clk),
+      .rst(reset),
+      .insn_i(f_insn),
+      .pc_i(pc),
+      .flush(flush),
+      .pc_o(fd_pc),
+      .insn_o(fd_insn)
+    );
 
     // ---------- DECODE STAGE ---------- //
     // decode signals
@@ -66,13 +85,13 @@ module rv_core #(
     logic [4:0] d_rs2;
     logic [6:0] d_funct7;
     logic [2:0] d_funct3;
-    logic [4:0] d_shamt;
+    // logic [4:0] d_shamt;
     logic [DWIDTH-1:0] d_imm;
     logic [DWIDTH-1:0] d_insn;
     logic [AWIDTH-1:0] d_pc;
 
-    assign d_insn = f_insn;
-    assign d_pc = pc;
+    // assign d_insn = f_insn;
+    // assign d_pc = pc;
 
     // Logic hole 2 (LH2): Please see decode.sv for details on LH2
     // decode instantiation
@@ -82,24 +101,24 @@ module rv_core #(
     ) decode1 (
         .clk(clk),
         .rst(reset),
-        .insn_i(d_insn),
-        .pc_i(d_pc),
-        .pc_o(),
-        .insn_o(),
+        .insn_i(fd_insn),
+        .pc_i(fd_pc),
+        .pc_o(d_pc),
+        .insn_o(d_insn),
         .opcode_o(d_opcode),
         .rd_o(d_rd),
         .rs1_o(d_rs1),
         .rs2_o(d_rs2),
         .funct7_o(d_funct7),
         .funct3_o(d_funct3),
-        .shamt_o(d_shamt),
+     //   .shamt_o(d_shamt),
         .imm_o(d_imm)
     );
 
     // immediate generator signals
     logic [DWIDTH - 1:0] igen_imm;
     assign d_imm = c_immsel ? igen_imm : '0;
-    assign d_shamt = d_imm[4:0];
+    // assign d_shamt = d_imm[4:0];
 
     // Logic hole 3 (LH3): Please see igen.sv for details on LH3
     // immediate generator instantiation
@@ -111,36 +130,13 @@ module rv_core #(
         .imm_o(igen_imm)
     );
 
-    // ---------- CONTROL --------------- //
-    // Logic hole 4 (LH4): Please see control.sv for details on LH4
-    // control signals
-    wire c_pcsel;
-    wire c_immsel;
-    wire c_regwren;
-    wire c_rs1sel;
-    wire c_rs2sel;
-    wire c_memren;
-    wire c_memwren;
-    wire [1:0] c_wbsel;
-    wire [3:0] c_alusel;
-    // control instantiation
-    control #(
-        .DWIDTH(32)
-    ) control1 (
-        .insn_i(d_insn),
-        .opcode_i(d_opcode),
-        .funct7_i(d_funct7),
-        .funct3_i(d_funct3),
-        .pcsel_o(c_pcsel),
-        .immsel_o(c_immsel),
-        .regwren_o(c_regwren),
-        .rs1sel_o(c_rs1sel),
-        .rs2sel_o(c_rs2sel),
-        .memren_o(c_memren),
-        .memwren_o(c_memwren),
-        .wbsel_o(c_wbsel),
-        .alusel_o(c_alusel)
-    );
+    // ---------- D/X ---------- //
+    // D/X signals
+    logic [AWIDTH-1:0] dx_pc;
+    logic [DWIDTH-1:0] dx_imm, dx_rs1data, dx_rs2data;
+    logic [6:0] dx_opcode, dx_funct7;
+    logic [2:0] dx_funct3;
+    logic [4:0] dx_rd, dx_rs1, dx_rs2;
 
     // ---------- EXECUTE STAGE --------- //
     // execute signals
@@ -171,6 +167,12 @@ module rv_core #(
       .brtaken_o(e_brtaken)
     );
 
+    // ---------- X/M ---------- //
+    logic [AWIDTH-1:0] xm_pc;
+    logic [DWIDTH-1:0] xm_alu_res, xm_rs2data;
+    logic [4:0] xm_rd, xm_rs2;
+    logic [2:0] xm_funct3;
+
     // ---------- MEMORY STAGE ---------- //
     logic insn_en;
     logic [DWIDTH-1:0] m_data_o;
@@ -199,6 +201,11 @@ module rv_core #(
         .insn_o(f_insn),
         .data_o(m_data_o)
     );
+
+    // ---------- M/WB ---------- //
+    logic [AWIDTH-1:0] mw_pc;
+    logic [DWIDTH-1:0] mw_alu_res, mw_mem_data, mw_imm;
+    logic [4:0] mw_rd;
 
     // ---------- WRITEBACK STAGE ------- //
     // Logic hole 7 (LH7): Please see writeback.sv for details on LH7
@@ -234,6 +241,40 @@ module rv_core #(
       .regwren_i(c_regwren),
       .rs1data_o(r_rs1data),
       .rs2data_o(r_rs2data)
+    );
+
+    // ---------- CONTROL BUS (D/X, X/M, M/WB) ---------- //
+    logic [12:0] ctrl_reg [2:0]; // D_X=ctrl_reg[0], X_M=ctrl_reg[1], M_W=ctrl_reg[2]
+
+    // ---------- CONTROL --------------- //
+    // Logic hole 4 (LH4): Please see control.sv for details on LH4
+    // control signals
+    wire c_pcsel;
+    wire c_immsel;
+    wire c_regwren;
+    wire c_rs1sel;
+    wire c_rs2sel;
+    wire c_memren;
+    wire c_memwren;
+    wire [1:0] c_wbsel;
+    wire [3:0] c_alusel;
+    // control instantiation
+    control #(
+        .DWIDTH(32)
+    ) control1 (
+        .insn_i(d_insn),
+        .opcode_i(d_opcode),
+        .funct7_i(d_funct7),
+        .funct3_i(d_funct3),
+        .pcsel_o(c_pcsel),
+        .immsel_o(c_immsel),
+        .regwren_o(c_regwren),
+        .rs1sel_o(c_rs1sel),
+        .rs2sel_o(c_rs2sel),
+        .memren_o(c_memren),
+        .memwren_o(c_memwren),
+        .wbsel_o(c_wbsel),
+        .alusel_o(c_alusel)
     );
 
     // This is to get yosys to synthesize the design
