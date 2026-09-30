@@ -25,14 +25,14 @@ module fd_reg #(
     input logic rst,
     input logic [DWIDTH-1:0] insn_i,
     input logic [AWIDTH-1:0] pc_i,
-    input logic flush,
+    input logic flush_i,
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
   output logic [DWIDTH-1:0] insn_o
 );
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst || flush_i) begin
       pc_o <= '0;
       insn_o <= `NOP;
     end else begin
