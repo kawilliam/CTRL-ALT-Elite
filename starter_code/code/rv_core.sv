@@ -192,8 +192,14 @@ module rv_core #(
     wire [3:0] e_alusel = `D_X[`ALUSEL];
     // Logic hole 5 (LH5): Complete the logic to determine the inputs to the ALU
     //                     alu_A, mux_B, alu_B
-    assign alu_A = dx_rs1data; /* LH5??? */
-    assign alu_B = e_rs2sel ? dx_imm : dx_rs2data; /* LH5??? */
+    //Added Forwarding
+    wire mx_rs1 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs1) && !`X_M[`MEMREN];
+    wire wx_rs1 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs1);
+    wire mx_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs2) && !`X_M[`MEMREN];
+    wire wx_rs2 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs2);
+    wire [DWIDTH-1:0] fwd_rs2 = mx_rs2 ? xm_alu_res : wx_rs2 ? wb_data : dx_rs2data;
+    assign alu_A = mx_rs1 ? xm_alu_res : wx_rs1 ? wb_data : dx_rs1data; /* LH5??? */
+    assign alu_B = e_rs2sel ? dx_imm : fwd_rs2; /* LH5??? */
 
     // Logic hole 6 (LH6): Please see execute.sv for details on LH6
     // Execute instantiation
@@ -255,8 +261,10 @@ module rv_core #(
 
     // Read instruction from memory only if no reset.
     assign insn_en = 1'b1;
-    assign mem_data = xm_rs2data;
-
+    // Added forwarding
+    wire wm_rs2 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == xm_rs2);
+    assign mem_data = wm_rs2 ? wb_data : xm_rs2data;
+    
     // Memory instantiation
     memory #(
         .AWIDTH(32),
@@ -352,11 +360,13 @@ module rv_core #(
     logic [12:0] ctrl_reg [2:0]; // D_X=ctrl_reg[0], X_M=ctrl_reg[1], M_W=ctrl_reg[2]
 
     // --------- Hazards ---------- //
-    wire hazard_x = `D_X[`REGWREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2));
-    wire hazard_m = `X_M[`REGWREN] && (xm_rd != 5'd0) && ((xm_rd == d_rs1) || (xm_rd == d_rs2));
-    wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));
+    wire hazard_load = `D_X[`MEMREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2 && d_opcode != `S_TYPE));
+    // wire hazard_x = `D_X[`REGWREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2));
+    // wire hazard_m = `X_M[`REGWREN] && (xm_rd != 5'd0) && ((xm_rd == d_rs1) || (xm_rd == d_rs2));
+    // wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));
 
-    assign hazard = (hazard_x || hazard_m || hazard_w) && !jump_branch;
+    // assign hazard = (hazard_x || hazard_m || hazard_w) && !jump_branch;
+    assign hazard = hazard_load && !jump_branch;
 
     // ---------- CONTROL --------------- //
     // Logic hole 4 (LH4): Please see control.sv for details on LH4
