@@ -26,6 +26,7 @@ module fd_reg #(
     input logic [DWIDTH-1:0] insn_i,
     input logic [AWIDTH-1:0] pc_i,
     input logic flush_i,
+    input logic stall_i,
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
@@ -35,7 +36,7 @@ module fd_reg #(
     if (rst || flush_i) begin
       pc_o <= '0;
       insn_o <= `NOP;
-    end else begin
+    end else if (!stall_i) begin
       pc_o <= pc_i;
       insn_o <= insn_i;
     end

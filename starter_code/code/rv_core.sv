@@ -27,7 +27,7 @@ module rv_core #(
     logic [AWIDTH-1:0] f_pc, pc;
     logic [DWIDTH-1:0] f_insn;
     logic pc_en;
-    logic stall, flush;
+    logic stall, flush, hazard;
     logic jump_branch;
 
     assign jump_branch = e_brtaken || e_pcsel;
@@ -36,7 +36,7 @@ module rv_core #(
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
     stall_flush_logic stall_flush (
-        .hazard_i(1'b0),
+        .hazard_i(hazard),
         .br_jump_i(jump_branch),
         .pc_en_o(pc_en),
         .stall_o(stall),
@@ -52,7 +52,7 @@ module rv_core #(
         .clk(clk),
         .rst(reset),
         .next_pc_i(f_pc),
-        .pc_en_i(1'b1),
+        .pc_en_i(pc_en),
         .jump_branch_i(jump_branch),
         .pc_o(pc),
         .insn_o()
@@ -73,6 +73,7 @@ module rv_core #(
       .insn_i(f_insn),
       .pc_i(pc),
       .flush_i(flush),
+      .stall_i(stall),
       .pc_o(fd_pc),
       .insn_o(fd_insn)
     );
@@ -112,7 +113,7 @@ module rv_core #(
         .funct7_o(d_funct7),
         .funct3_o(d_funct3),
      //   .shamt_o(d_shamt),
-        .imm_o(d_imm)
+        .imm_o()
     );
 
     // immediate generator signals
@@ -157,6 +158,7 @@ module rv_core #(
       .rs1_i(d_rs1),
       .rs2_i(d_rs2),
       .flush_i(flush),
+      .stall_i(stall),
       .pcsel_i(c_pcsel),
       .immsel_i(c_immsel),
       .regwren_i(c_regwren),
@@ -181,7 +183,7 @@ module rv_core #(
 
     // ---------- EXECUTE STAGE --------- //
     // execute signals
-    logic [DWIDTH - 1:0] alu_A, alu_B, mux_B, e_res;
+    logic [DWIDTH - 1:0] alu_A, alu_B, e_res;
     logic e_brtaken;
 
     // ------ Control Signal Wires (EX) --- //
@@ -191,7 +193,6 @@ module rv_core #(
     // Logic hole 5 (LH5): Complete the logic to determine the inputs to the ALU
     //                     alu_A, mux_B, alu_B
     assign alu_A = dx_rs1data; /* LH5??? */
-    assign mux_B = dx_rs2data; /* LH5??? */
     assign alu_B = e_rs2sel ? dx_imm : dx_rs2data; /* LH5??? */
 
     // Logic hole 6 (LH6): Please see execute.sv for details on LH6
@@ -214,9 +215,34 @@ module rv_core #(
 
     // ---------- X/M ---------- //
     logic [AWIDTH-1:0] xm_pc;
-    logic [DWIDTH-1:0] xm_alu_res, xm_rs2data;
-    logic [4:0] xm_rsd, xm_rs2;
+    logic [DWIDTH-1:0] xm_alu_res, xm_rs2data, xm_imm;
+    logic [4:0] xm_rd, xm_rs2;
     logic [2:0] xm_funct3;
+
+    // X/M instantiation
+    xm_reg #(
+      .DWIDTH(32),
+      .AWIDTH(32)
+    ) xm_reg1 (
+      .clk(clk),
+      .rst(reset),
+      .pc_i(dx_pc),
+      .rs2data_i(dx_rs2data),
+      .funct3_i(dx_funct3),
+      .rd_i(dx_rd),
+      .rs2_i(dx_rs2),
+      .alu_res_i(e_res),
+      .ctrl_reg_i(`D_X),
+      .imm_i(dx_imm),
+      .pc_o(xm_pc),
+      .rs2data_o(xm_rs2data),
+      .funct3_o(xm_funct3),
+      .rd_o(xm_rd),
+      .rs2_o(xm_rs2),
+      .alu_res_o(xm_alu_res),
+      .ctrl_reg_o(`X_M),
+      .imm_o(xm_imm)
+    );
 
     // ---------- MEMORY STAGE ---------- //
     logic insn_en;
@@ -224,12 +250,12 @@ module rv_core #(
     logic [DWIDTH-1:0] mem_data;
 
     // ---- Control Signal Wires (MEM) -- //
-    wire e_memren = `D_X[`MEMREN];
-    wire e_memwren = `D_X[`MEMWREN];
+    wire mem_memren = `X_M[`MEMREN];
+    wire mem_memwren = `X_M[`MEMWREN];
 
     // Read instruction from memory only if no reset.
     assign insn_en = 1'b1;
-    assign mem_data = mux_B;
+    assign mem_data = xm_rs2data;
 
     // Memory instantiation
     memory #(
@@ -241,11 +267,11 @@ module rv_core #(
         .clk(clk),
         .rst(reset),
         .pc_i(pc),
-        .addr_i(e_res),
+        .addr_i(xm_alu_res),
         .data_i(mem_data),
-        .funct3_i(dx_funct3),
-        .memren_i(e_memren),
-        .memwren_i(e_memwren),
+        .funct3_i(xm_funct3),
+        .memren_i(mem_memren),
+        .memwren_i(mem_memwren),
         .insnen_i(insn_en),
         .insn_o(f_insn),
         .data_o(m_data_o)
@@ -256,10 +282,32 @@ module rv_core #(
     logic [DWIDTH-1:0] mw_alu_res, mw_mem_data, mw_imm;
     logic [4:0] mw_rd;
 
+    // M/WB instantiation
+    mwb_reg #(
+        .DWIDTH(32),
+        .AWIDTH(32)
+        ) mwb_reg1 (
+        .clk(clk),
+        .rst(reset),
+        .pc_i(xm_pc),
+        .alu_res_i(xm_alu_res),
+        .mdata_i(m_data_o),
+        .rd_i(xm_rd),
+        .imm_i(xm_imm),
+        .ctrl_reg_i(`X_M),
+        .pc_o(mw_pc),
+        .alu_res_o(mw_alu_res),
+        .mdata_o(mw_mem_data),
+        .rd_o(mw_rd),
+        .imm_o(mw_imm),
+        .ctrl_reg_o(`M_W)
+    );
+
     // ---------- WRITEBACK STAGE ------- //
 
     // ---- Control Signal Wires (WB) -- //
-    wire [1:0] e_wbsel = `D_X[`WBSEL];
+    wire [1:0] mem_wbsel = `M_W[`WBSEL];
+    wire mem_regwren = `M_W[`REGWREN];
 
     // Logic hole 7 (LH7): Please see writeback.sv for details on LH7
     // write back signals
@@ -270,18 +318,18 @@ module rv_core #(
       .DWIDTH(DWIDTH),
       .AWIDTH(AWIDTH)
     ) wb_wb1 (
-      .pc_i(dx_pc),
-      .alu_res_i(e_res),
-      .memory_data_i(m_data_o),
-      .wbsel_i(e_wbsel),
-      .imm_i(dx_imm),
+      .pc_i(mw_pc),
+      .alu_res_i(mw_alu_res),
+      .memory_data_i(mw_mem_data),
+      .wbsel_i(mem_wbsel),
+      .imm_i(mw_imm),
       .writeback_data_o(wb_data)
     );
 
     // ---------- REGISTER FILE ------- //
 
     // ---- Control Signal Wires (WB) -- //
-    wire e_regwren = `D_X[`REGWREN];
+    
 
     // register file signals
     logic [DWIDTH - 1:0] r_rs1data, r_rs2data;
@@ -293,15 +341,22 @@ module rv_core #(
       .rst(reset),
       .rs1_i(d_rs1),
       .rs2_i(d_rs2),
-      .rd_i(dx_rd),
+      .rd_i(mw_rd),
       .datawb_i(wb_data),
-      .regwren_i(e_regwren),
+      .regwren_i(mem_regwren),
       .rs1data_o(r_rs1data),
       .rs2data_o(r_rs2data)
     );
 
     // ---------- CONTROL BUS (D/X, X/M, M/WB) ---------- //
     logic [12:0] ctrl_reg [2:0]; // D_X=ctrl_reg[0], X_M=ctrl_reg[1], M_W=ctrl_reg[2]
+
+    // --------- Hazards ---------- //
+    wire hazard_x = `D_X[`REGWREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2));
+    wire hazard_m = `X_M[`REGWREN] && (xm_rd != 5'd0) && ((xm_rd == d_rs1) || (xm_rd == d_rs2));
+    wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));
+
+    assign hazard = (hazard_x || hazard_m || hazard_w) && !jump_branch;
 
     // ---------- CONTROL --------------- //
     // Logic hole 4 (LH4): Please see control.sv for details on LH4

@@ -13,7 +13,7 @@
  * 7) opcode opcode_i
  * 8) function3 funct3_i
  * 9) function7 funct7_i
- * 10) registerd address rsd_i
+ * 10) registerd address rd_i
  * 11) register1 address rs1_i
  * 12) register2 address rs2_i
  * 13) flush signal flush_i
@@ -34,7 +34,7 @@
  * 5) opcode opcode_o
  * 6) function3 funct3_o
  * 7) function7 funct7_o
- * 8) registerd address rsd_o
+ * 8) registerd address rd_o
  * 9) register1 address rs1_o
  * 10) register2 address rs2_o
  * 11) control register ctrl_reg_o
@@ -60,6 +60,7 @@ module dx_reg #(
         input logic [4:0] rs1_i,
         input logic [4:0] rs2_i,
         input logic flush_i,
+        input logic stall_i,
         input logic pcsel_i, // This is to determine whether to use PC + 4 or Jump
         input logic immsel_i, // Whether to use imm or reg val
         input logic regwren_i, // Reg write enable - whther to write to reg file
@@ -69,7 +70,6 @@ module dx_reg #(
         input logic memren_i, // Whether to read from memory
         input logic memwren_i, // Whether to write to memory
         input logic [1:0] wbsel_i, // What to write to reg file - ALU res, mem data, pc+4, or imm
-        
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
@@ -85,7 +85,7 @@ module dx_reg #(
   output logic [12:0] ctrl_reg_o
 );
   always_ff @(posedge clk) begin
-    if (rst || flush_i) begin
+    if (rst || flush_i || stall_i) begin
       pc_o <= '0;
       imm_o <= '0;
       rs1data_o <= '0;
