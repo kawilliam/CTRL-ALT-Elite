@@ -56,9 +56,10 @@
     end
 
     // Combinational procedural block for reading from the register file
+    //Added forwarding
     always_comb begin
-        rs1data_o = x[rs1_i];
-        rs2data_o = x[rs2_i];
+        rs1data_o = (regwren_i && rd_i != 5'd0 && rd_i == rs1_i) ? datawb_i : x[rs1_i];
+        rs2data_o = (regwren_i && rd_i != 5'd0 && rd_i == rs2_i) ? datawb_i : x[rs2_i];
     end
 
 endmodule : register_file
