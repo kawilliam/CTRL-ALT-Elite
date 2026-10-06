@@ -42,7 +42,7 @@ module decode #(
   output logic [4:0] rs2_o,
   output logic [6:0] funct7_o,
   output logic [2:0] funct3_o,
-  output logic [4:0] shamt_o,
+// output logic [4:0] shamt_o,
   output logic [DWIDTH-1:0] imm_o
 );
     always_comb begin
