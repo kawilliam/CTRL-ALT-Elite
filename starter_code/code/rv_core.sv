@@ -192,14 +192,21 @@ module rv_core #(
     wire [3:0] e_alusel = `D_X[`ALUSEL];
     // Logic hole 5 (LH5): Complete the logic to determine the inputs to the ALU
     //                     alu_A, mux_B, alu_B
-    //Added Forwarding
+    // Memory-stage bypass must forward the value that instruction will write.
+    // lui writes its immediate, and jal/jalr write pc+4. The ALU result is neither.
+    wire [1:0] xm_wbsel = `X_M[`WBSEL];
+    wire [DWIDTH-1:0] xm_wdata =
+        (xm_wbsel == `WB_IMM) ? xm_imm :
+        (xm_wbsel == `WB_PC4) ? xm_pc + 32'd4 :
+        xm_alu_res;
     wire mx_rs1 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs1) && !`X_M[`MEMREN];
     wire wx_rs1 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs1);
     wire mx_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs2) && !`X_M[`MEMREN];
     wire wx_rs2 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs2);
-    wire [DWIDTH-1:0] fwd_rs2 = mx_rs2 ? xm_alu_res : wx_rs2 ? wb_data : dx_rs2data;
-    assign alu_A = mx_rs1 ? xm_alu_res : wx_rs1 ? wb_data : dx_rs1data; /* LH5??? */
-    assign alu_B = e_rs2sel ? dx_imm : fwd_rs2; /* LH5??? */
+    wire [DWIDTH-1:0] fwd_rs1 = mx_rs1 ? xm_wdata : wx_rs1 ? wb_data : dx_rs1data;
+    wire [DWIDTH-1:0] fwd_rs2 = mx_rs2 ? xm_wdata : wx_rs2 ? wb_data : dx_rs2data;
+    assign alu_A = fwd_rs1;
+    assign alu_B = e_rs2sel ? dx_imm : fwd_rs2;
 
     // Logic hole 6 (LH6): Please see execute.sv for details on LH6
     // Execute instantiation
@@ -233,7 +240,7 @@ module rv_core #(
       .clk(clk),
       .rst(reset),
       .pc_i(dx_pc),
-      .rs2data_i(dx_rs2data),
+      .rs2data_i(fwd_rs2),
       .funct3_i(dx_funct3),
       .rd_i(dx_rd),
       .rs2_i(dx_rs2),
