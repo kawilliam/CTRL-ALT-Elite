@@ -45,16 +45,19 @@ module main_memory #(
     // ------------------- //
 );
 
-    // Word-addressable memory
-    localparam int MEM_BYTES = `MEM_DEPTH;
+    // Synthesis uses a small fixed memory. Simulation keeps MEM_DEPTH.
+    `ifdef SYNTHESIS
+        localparam int MEM_BYTES = 1024;
+    `else
+        localparam int MEM_BYTES = `MEM_DEPTH;
+    `endif
     localparam int MEM_WORDS = MEM_BYTES / (DWIDTH/8);
 
     logic [DWIDTH-1:0] main_memory [0:MEM_WORDS-1];
 
-    // Temporary memory for loading program
+    `ifndef SYNTHESIS
     logic [DWIDTH-1:0] temp_memory [0:LINECOUNT - 1];
 
-    // Initialization of memory from program
     initial begin
         string mem_path;
         if ($value$plusargs("MEM_PATH=%s", mem_path))
@@ -71,6 +74,7 @@ module main_memory #(
         end
         $display("MEMORY: Loaded program");
     end
+    `endif
 
     //---------- Instruction Load ----------//
     logic [AWIDTH-1:0] program_counter;
@@ -83,17 +87,22 @@ module main_memory #(
             insn_o = '0;
         end
         else if (insnen_i) begin
+            `ifndef SYNTHESIS
             if ($isunknown(pc_i)) begin
                 insn_o = '0;
             end
-            else if ((pc_i >= BASE_ADDR) &&
+            else
+            `endif
+            if ((pc_i >= BASE_ADDR) &&
                      (pc_i + 32'd3 < BASE_ADDR + MEM_BYTES)) begin
                 insn_o = main_memory[program_counter];
             end
             else begin
                 insn_o = 32'hDEAD_BEEF;
+                `ifndef SYNTHESIS
                 $display("IMEMORY: 00B read @0x%08h (mapped 0x%08h)",
                          pc_i, program_counter);
+                `endif
             end
         end
     end
@@ -109,10 +118,13 @@ module main_memory #(
             data_o = '0;
         end
         else if (memren_i) begin
+            `ifndef SYNTHESIS
             if ($isunknown(address)) begin
                 data_o = '0;
             end
-            else begin
+            else
+            `endif
+            begin
                 data_o = main_memory[address];
             end
         end
