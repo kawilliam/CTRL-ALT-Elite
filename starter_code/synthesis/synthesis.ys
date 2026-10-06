@@ -18,6 +18,10 @@ read_slang -Icode \
     code/register_file.sv \
     code/stall_flush_logic.sv \
     code/writeback.sv \
+    code/dx_reg.sv \
+    code/fd_reg.sv \
+    code/mwb_reg.sv \
+    code/xm_reg.sv \
     code/rv_core.sv 
 
     echo on
@@ -32,8 +36,11 @@ read_slang -Icode \
     techmap; opt 
     flatten; opt
     dfflibmap -liberty synthesis/sky130nm.lib
-    abc -liberty synthesis/sky130nm.lib
+    abc -liberty synthesis/sky130nm.lib -D 10000 -script "+strash;dch;map -B 0.9;topo;stime -c;buffer -c;upsize -c;dnsize -c;stime -p"
     setundef -zero
-    write_verilog synth.v
+    splitnets
+    opt_clean -purge
+    write_verilog -noattr synth.v
     write_json synth.json
-    stat
+    stat -liberty synthesis/sky130nm.lib
+    exec -expect-return 0 -- sta -exit synthesis/timing.tcl
