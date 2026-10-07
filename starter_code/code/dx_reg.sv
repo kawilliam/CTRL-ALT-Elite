@@ -84,8 +84,20 @@ module dx_reg #(
   output logic [4:0] rs2_o,
   output logic [12:0] ctrl_reg_o
 );
-  always_ff @(posedge clk) begin
-    if (rst || flush_i || stall_i) begin
+  always_ff @(posedge clk or posedge rst) begin
+    if (rst) begin
+      pc_o <= '0;
+      imm_o <= '0;
+      rs1data_o <= '0;
+      rs2data_o <= '0;
+      opcode_o <= '0;
+      funct3_o <= '0;
+      funct7_o <= '0;
+      rd_o <= '0;
+      rs1_o <= '0;
+      rs2_o <= '0;
+      ctrl_reg_o <= '0;
+    end else if (flush_i || stall_i) begin
       pc_o <= '0;
       imm_o <= '0;
       rs1data_o <= '0;
