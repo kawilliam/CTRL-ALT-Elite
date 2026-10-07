@@ -115,6 +115,7 @@ module rv_core #(
     wire [1:0] c_wbsel;               // control writeback source
     wire [3:0] c_alusel;              // control ALU operation
 
+    // TODO: Add branch prediction to lower CPI. Branches and jumps are resolved in execute, causes 2 instuctions to be flushed
     assign jump_branch = e_brtaken || e_pcsel;
     assign f_pc = jump_branch ? e_res : pc;
 
