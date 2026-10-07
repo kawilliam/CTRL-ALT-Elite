@@ -29,7 +29,7 @@ module memory_controller #(
     parameter int AWIDTH = 32,
     parameter int DWIDTH = 32,
     parameter int OWIDTH = 2,
-    parameter logic [AWIDTH-1:0] BASE_ADDR = 32'h0100_0000
+    parameter logic [AWIDTH-1:0] BASE_ADDR = `BASE_ADDR
  ) (
     input  logic rst,
     // raw address for memory reads and writes

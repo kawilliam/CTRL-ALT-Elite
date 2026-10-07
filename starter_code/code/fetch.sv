@@ -9,7 +9,7 @@
 module fetch #(
     parameter int DWIDTH=32,
     parameter int AWIDTH=32,
-    parameter int BASEADDR=32'h01000000
+    parameter int BASEADDR=`BASE_ADDR
     )(
 	// inputs
 	input logic clk,
@@ -22,10 +22,10 @@ module fetch #(
   output logic [DWIDTH - 1:0] insn_o
 );
 
-    logic [AWIDTH - 1:0] pc = BASEADDR;
+    logic [AWIDTH - 1:0] pc;
     assign pc_o = (rst) ? '0 : pc;
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
             pc <= BASEADDR;
         end

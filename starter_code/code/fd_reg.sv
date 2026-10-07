@@ -32,7 +32,7 @@ module fd_reg #(
   output logic [AWIDTH-1:0] pc_o,
   output logic [DWIDTH-1:0] insn_o
 );
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst || flush_i) begin
       pc_o <= '0;
       insn_o <= `NOP;

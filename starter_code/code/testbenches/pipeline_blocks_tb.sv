@@ -15,7 +15,7 @@
  * M/WB; reset, normal pass-through, stall (F/D holds, D/X becomes a bubble),
  * flush (F/D and D/X become bubbles).
  */
-module pipeline_regs_tb;
+module pipeline_blocks_tb;
 
     logic clk = 0;
     logic rst = 1;

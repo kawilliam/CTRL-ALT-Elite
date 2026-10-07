@@ -38,7 +38,7 @@
     logic [DWIDTH - 1:0] x [31:0];
     // Sequential procedural block for writing to register file
     // regwren_i must be high
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge rst) begin
         // Reset contents of register file on reset signal
         if (rst) begin
             // initialize all register to zero on reset high

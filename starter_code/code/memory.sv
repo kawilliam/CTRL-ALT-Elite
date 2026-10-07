@@ -20,11 +20,13 @@
  * 2) DWIDTH data output data_o
  */
 
+`include "constants.svh"
+
 module memory #(
     parameter int AWIDTH = 32,
     parameter int DWIDTH = 32,
     parameter int OWIDTH = 2,
-    parameter logic [31:0] BASE_ADDR = 32'h0100_0000
+    parameter logic [31:0] BASE_ADDR = `BASE_ADDR
 ) (
     input  logic clk,
     input  logic rst,
@@ -48,7 +50,7 @@ module memory #(
         .AWIDTH(AWIDTH),
         .DWIDTH(DWIDTH),
         .OWIDTH($clog2(DWIDTH/8)),
-        .BASE_ADDR(32'h0100_0000)
+        .BASE_ADDR(BASE_ADDR)
     ) mem_con (
         .rst(rst),
         .addr_i(addr_i),
@@ -66,7 +68,7 @@ module memory #(
     main_memory #(
         .AWIDTH(AWIDTH),
         .DWIDTH(DWIDTH),
-        .BASE_ADDR(32'h0100_0000)
+        .BASE_ADDR(BASE_ADDR)
     ) ram (
         .clk(clk),
         .rst(rst),

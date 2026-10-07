@@ -45,7 +45,7 @@ parameter int AWIDTH=32
   output logic [DWIDTH-1:0] imm_o,
   output logic [12:0] ctrl_reg_o
 );
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       pc_o <= '0;
       alu_res_o <= '0;
