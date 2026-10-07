@@ -51,7 +51,7 @@ module xm_reg #(
   output logic [12:0] ctrl_reg_o,
   output logic [DWIDTH-1:0] imm_o
 );
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk  or posedge rst) begin
     if (rst) begin
       pc_o <= '0;
       rs2data_o <= '0;

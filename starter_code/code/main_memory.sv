@@ -27,7 +27,7 @@ module main_memory #(
     parameter int AWIDTH = 32,
     parameter int DWIDTH = 32,
     parameter int LINECOUNT = 1000,
-    parameter logic [31:0] BASE_ADDR = 32'h01000000
+    parameter logic [31:0] BASE_ADDR = `BASE_ADDR
 ) (
     // inputs
     input  logic clk,

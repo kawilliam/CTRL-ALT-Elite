@@ -24,81 +24,98 @@ module rv_core #(
     //               that will feed into jump_branch_i port in fetch module.
     //               No changes are necessary in fetch logic (fetch.sv)
     // fetch signals
-    logic [AWIDTH-1:0] f_pc, pc;
-    logic [DWIDTH-1:0] f_insn;
-    logic pc_en;
-    logic stall, flush, hazard;
-    logic jump_branch;
+    logic [AWIDTH-1:0] f_pc;          // next-PC input to fetch
+    logic [AWIDTH-1:0] pc;            // current PC
+    logic [DWIDTH-1:0] f_insn;        // instruction read from memory
+    logic pc_en;                      // PC enable
+    logic stall;                      // stall signal
+    logic flush;                      // squash signal
+    logic hazard;                     // hazard detection
+    logic jump_branch;                // taken branch or jump
 
-    logic [AWIDTH-1:0] fd_pc;
-    logic [DWIDTH-1:0] fd_insn;
+    logic [AWIDTH-1:0] fd_pc;         // fd pipelined pc
+    logic [DWIDTH-1:0] fd_insn;       // fd pipelined instruction
 
-    logic [6:0] d_opcode;
-    logic [4:0] d_rd;
-    logic [4:0] d_rs1;
-    logic [4:0] d_rs2;
-    logic [6:0] d_funct7;
-    logic [2:0] d_funct3;
-    logic [DWIDTH-1:0] d_imm;
-    logic [DWIDTH-1:0] d_insn;
-    logic [AWIDTH-1:0] d_pc;
-    logic [DWIDTH - 1:0] igen_imm;
+    logic [6:0] d_opcode;             // opcode
+    logic [4:0] d_rd;                 // destination register
+    logic [4:0] d_rs1;                // source register 1
+    logic [4:0] d_rs2;                // source register 2
+    logic [6:0] d_funct7;             // funct7 field
+    logic [2:0] d_funct3;             // funct3 field
+    logic [DWIDTH-1:0] d_imm;         // immediate
+    logic [DWIDTH-1:0] d_insn;        // instruction to decode
+    logic [AWIDTH-1:0] d_pc;          // PC to decode
+    logic [DWIDTH-1:0] igen_imm;      // immediate
 
-    logic [AWIDTH-1:0] dx_pc;
-    logic [DWIDTH-1:0] dx_imm, dx_rs1data, dx_rs2data;
-    logic [6:0] dx_opcode, dx_funct7;
-    logic [2:0] dx_funct3;
-    logic [4:0] dx_rd, dx_rs1, dx_rs2;
+    logic [AWIDTH-1:0] dx_pc;         // dx pipelined PC
+    logic [DWIDTH-1:0] dx_imm;        // dx pipelined immediate
+    logic [DWIDTH-1:0] dx_rs1data;    // dx pipelined rs1 value
+    logic [DWIDTH-1:0] dx_rs2data;    // dx pipelined rs2 value
+    logic [6:0] dx_opcode;            // dx pipelined opcode
+    logic [6:0] dx_funct7;            // dx pipelined funct7 field
+    logic [2:0] dx_funct3;            // dx pipelined funct3 field
+    logic [4:0] dx_rd;                // dx pipelined destination register
+    logic [4:0] dx_rs1;               // dx pipelined source register 1
+    logic [4:0] dx_rs2;               // dx pipelined source register 2
 
-    logic [DWIDTH - 1:0] alu_A, alu_B, e_res;
-    logic e_brtaken;
-    wire e_pcsel;
-    wire e_rs2sel;
-    wire [3:0] e_alusel;
-    wire [1:0] xm_wbsel;
-    wire [DWIDTH-1:0] xm_wdata;
-    wire mx_rs1;
-    wire wx_rs1;
-    wire mx_rs2;
-    wire wx_rs2;
-    wire [DWIDTH-1:0] fwd_rs1;
-    wire [DWIDTH-1:0] fwd_rs2;
+    logic [DWIDTH-1:0] alu_A;         // ALU operand A (rs1)
+    logic [DWIDTH-1:0] alu_B;         // ALU operand B (s2 or immediate)
+    logic [DWIDTH-1:0] e_res;         // ALU result
+    logic e_brtaken;                  // branch condition
+    wire e_pcsel;                     // jump select
+    wire e_rs2sel;                    // ALU operand B immediate
+    wire [3:0] e_alusel;              // ALU operation
+    wire [1:0] xm_wbsel;              // writeback source
+    wire [DWIDTH-1:0] xm_wdata;       // writeback data
+    wire mx_rs1;                      // forward rs1 from memory stage
+    wire wx_rs1;                      // forward rs1 from writeback
+    wire mx_rs2;                      // forward rs2 from memory stage
+    wire wx_rs2;                      // forward rs2 from writeback
+    wire [DWIDTH-1:0] fwd_rs1;        // rs1 value after forwarding
+    wire [DWIDTH-1:0] fwd_rs2;        // rs2 value after forwarding
 
-    logic [AWIDTH-1:0] xm_pc;
-    logic [DWIDTH-1:0] xm_alu_res, xm_rs2data, xm_imm;
-    logic [4:0] xm_rd, xm_rs2;
-    logic [2:0] xm_funct3;
+    logic [AWIDTH-1:0] xm_pc;         // xm pipelined PC
+    logic [DWIDTH-1:0] xm_alu_res;    // xm pipelined ALU result
+    logic [DWIDTH-1:0] xm_rs2data;    // xm pipelined store data
+    logic [DWIDTH-1:0] xm_imm;        // xm pipelined immediate
+    logic [4:0] xm_rd;                // xm pipelined rd
+    logic [4:0] xm_rs2;               // xm pipelined rs2
+    logic [2:0] xm_funct3;            // xm pipelined funct 3
 
-    logic insn_en;
-    logic [DWIDTH-1:0] m_data_o;
-    logic [DWIDTH-1:0] mem_data;
-    wire mem_memren;
-    wire mem_memwren;
-    wire wm_rs2;
+    logic insn_en;                    // instruction read enable
+    logic [DWIDTH-1:0] m_data_o;      // load data
+    logic [DWIDTH-1:0] mem_data;      // store data after WM forwarding
+    wire mem_memren;                  // memory load enable
+    wire mem_memwren;                 // memory store enable
+    wire wm_rs2;                      // forward store data from writeback
 
-    logic [AWIDTH-1:0] mw_pc;
-    logic [DWIDTH-1:0] mw_alu_res, mw_mem_data, mw_imm;
-    logic [4:0] mw_rd;
+    logic [AWIDTH-1:0] mw_pc;         // mw pipelined PC
+    logic [DWIDTH-1:0] mw_alu_res;    // mw pipelined ALU result
+    logic [DWIDTH-1:0] mw_mem_data;   // mw pipelined load data
+    logic [DWIDTH-1:0] mw_imm;        // mw pipelined immediate
+    logic [4:0] mw_rd;                // mw pipelined rd
 
-    wire [1:0] mem_wbsel;
-    wire mem_regwren;
-    logic [DWIDTH-1:0] wb_data;
+    wire [1:0] mem_wbsel;             // writeback select
+    wire mem_regwren;                 // write rd enable
+    logic [DWIDTH-1:0] wb_data;       // rd data
 
-    logic [DWIDTH - 1:0] r_rs1data, r_rs2data;
+    logic [DWIDTH-1:0] r_rs1data;     // rs1 data
+    logic [DWIDTH-1:0] r_rs2data;     // rs2 data
 
-    logic [12:0] ctrl_reg [2:0];
-    wire hazard_load;
+    logic [12:0] ctrl_reg [2:0];      // control data propogated through pipeline (D_X, X_M, M_W)
+    wire hazard_load;                 // hazard load
 
-    wire c_pcsel;
-    wire c_immsel;
-    wire c_regwren;
-    wire c_rs1sel;
-    wire c_rs2sel;
-    wire c_memren;
-    wire c_memwren;
-    wire [1:0] c_wbsel;
-    wire [3:0] c_alusel;
+    wire c_pcsel;                     // control pc signal
+    wire c_immsel;                    // control immediate select
+    wire c_regwren;                   // control rd write
+    wire c_rs1sel;                    // control ALU operand A
+    wire c_rs2sel;                    // control ALU operand B
+    wire c_memren;                    // control load
+    wire c_memwren;                   // control store
+    wire [1:0] c_wbsel;               // control writeback source
+    wire [3:0] c_alusel;              // control ALU operation
 
+    // TODO: Add branch prediction to lower CPI. Branches and jumps are resolved in execute, causes 2 instuctions to be flushed
     assign jump_branch = e_brtaken || e_pcsel;
     assign f_pc = jump_branch ? e_res : pc;
 
@@ -116,7 +133,7 @@ module rv_core #(
     fetch #(
         .AWIDTH(32),
         .DWIDTH(32),
-        .BASEADDR(32'h01000000)
+        .BASEADDR(`BASE_ADDR)
     ) fetch1 (
         .clk(clk),
         .rst(reset),
@@ -309,7 +326,7 @@ module rv_core #(
         .AWIDTH(32),
         .DWIDTH(32),
         .OWIDTH(2),
-        .BASE_ADDR(32'h01000000)
+        .BASE_ADDR(`BASE_ADDR)
         ) memory1 (
         .clk(clk),
         .rst(reset),
@@ -354,7 +371,6 @@ module rv_core #(
 
     // Logic hole 7 (LH7): Please see writeback.sv for details on LH7
     // write back instantiation
-    // TEST
     writeback #(
       .DWIDTH(DWIDTH),
       .AWIDTH(AWIDTH)

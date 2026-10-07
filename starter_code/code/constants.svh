@@ -31,6 +31,9 @@ parameter logic [31:0] ZERO = 32'd0;
 `define X_M ctrl_reg[1]
 `define M_W ctrl_reg[2]
 
+// Memory base addr
+`define BASE_ADDR 32'h0100_0000 
+
  // Opcode constants
 `define R_TYPE       7'b0110011
 `define I_TYPE       7'b0010011

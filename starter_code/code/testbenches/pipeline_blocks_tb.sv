@@ -14,8 +14,11 @@
  * pipeline_regs_tb: tests the four pipeline registers F/D, D/X, X/M and
  * M/WB; reset, normal pass-through, stall (F/D holds, D/X becomes a bubble),
  * flush (F/D and D/X become bubbles).
+ * Each row's reset is applied on the falling edge, half a cycle after its
+ * other inputs, so the row before it is checked before an asynchronous
+ * reset clears the registers.
  */
-module pipeline_regs_tb;
+module pipeline_blocks_tb;
 
     logic clk = 0;
     logic rst = 1;
@@ -110,6 +113,15 @@ module pipeline_regs_tb;
         number_of_tests = tests.size();
     end
 
+    always_ff @(negedge clk) begin
+        if (rst)
+            p_rst <= 1;
+        else if (test_counter >= 1 && test_counter <= number_of_tests)
+            p_rst <= tests[test_counter - 1].rst;
+        else
+            p_rst <= 0;
+    end
+
     // ------------------------------------------------------------------
     // Stimulus: on each rising edge, drive the next row's controls and new
     // random data. One extra idle cycle at the end lets the last row be
@@ -121,7 +133,6 @@ module pipeline_regs_tb;
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            p_rst <= 1;
             stall <= 0;
             flush <= 0;
             fd_in <= '0;
@@ -132,12 +143,10 @@ module pipeline_regs_tb;
         end
         else if (test_counter <= number_of_tests) begin
             if (test_counter < number_of_tests) begin
-                p_rst <= tests[test_counter].rst;
                 stall <= tests[test_counter].stall;
                 flush <= tests[test_counter].flush;
             end
-            else begin 
-                p_rst <= 0;
+            else begin
                 stall <= 0;
                 flush <= 0;
             end
@@ -242,4 +251,4 @@ module pipeline_regs_tb;
         $system("date");
     end
 
-endmodule : pipeline_regs_tb
+endmodule : pipeline_blocks_tb
