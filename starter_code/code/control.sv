@@ -6,7 +6,7 @@
  * module for better readability, debug and design purposes.
  *
  * Inputs:
- * 1) DWIDTH instruction ins_i
+ * 1) DWIDTH instruction insn_i
  * 2) 7-bit opcode opcode_i
  * 3) 7-bit funct7 funct7_i
  * 4) 3-bit funct3 funct3_i
@@ -56,7 +56,7 @@ assign immsel_o = !(opcode_i == `R_TYPE);
 */
 
 logic is_jump;
-assign is_jump = (opcode_i == `J_TYPE) || (opcode_i == `I_TYPE_JALR);
+assign is_jump = (opcode_i == `I_TYPE_JALR);
 
 
 assign pcsel_o = is_jump;

@@ -10,7 +10,9 @@
 
 `include "constants.svh"
 
-module rv_core #(
+module rv_core
+  import frontend_pkg::*;
+#(
   parameter int AWIDTH = 32,
   parameter int DWIDTH = 32
 )(
@@ -115,15 +117,28 @@ module rv_core #(
     wire [1:0] c_wbsel;               // control writeback source
     wire [3:0] c_alusel;              // control ALU operation
 
+    // Wires for the pre-decoder outputs
+    wire pre_en_redir;
+    wire [31:0] pre_target;
+    wire [31:0] pre_ra;
+    wire cfi_t pre_cfi;
+    wire pre_en_call;
+    wire pre_en_ret;
+
+    wire is_insn_en;
+    
+    // Valid instruction check
+    assign is_insn_en = ~flush;
+
     // TODO: Add branch prediction to lower CPI. Branches and jumps are resolved in execute, causes 2 instuctions to be flushed
-    assign jump_branch = e_brtaken || e_pcsel;
-    assign f_pc = jump_branch ? e_res : pc;
+    assign jump_branch = e_brtaken || e_pcsel || pre_en_redir;
+    assign f_pc = (e_brtaken || e_pcsel) ? e_res : (pre_en_redir) ? pre_target : pc;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
     stall_flush_logic stall_flush (
         .hazard_i(hazard),
-        .br_jump_i(jump_branch),
+        .br_jump_i(e_brtaken || e_pcsel),
         .pc_en_o(pc_en),
         .stall_o(stall),
         .flush_o(flush)
@@ -140,8 +155,25 @@ module rv_core #(
         .next_pc_i(f_pc),
         .pc_en_i(pc_en),
         .jump_branch_i(jump_branch),
-        .pc_o(pc),
-        .insn_o()
+        .pc_o(pc)
+    );
+
+    
+    
+
+    pre_decode #(
+        .AWIDTH(32),
+        .DWIDTH(32)
+    ) pre_decode1 (
+      .insn_i(f_insn),
+      .pc_i(pc),
+      .is_insn_i(is_insn_en),
+      .target_o(pre_target),
+      .ra_o(pre_ra),
+      .cfit_o(pre_cfi),
+      .is_call_o(pre_en_call),
+      .is_ret_o(pre_en_ret),
+      .is_redir_o(pre_en_redir)
     );
 
     // ---------- F/D ---------- //
@@ -182,9 +214,7 @@ module rv_core #(
         .rs1_o(d_rs1),
         .rs2_o(d_rs2),
         .funct7_o(d_funct7),
-        .funct3_o(d_funct3),
-     //   .shamt_o(d_shamt),
-        .imm_o()
+        .funct3_o(d_funct3)
     );
 
     // assign d_shamt = d_imm[4:0];
@@ -203,6 +233,8 @@ module rv_core #(
 
     // ---------- D/X ---------- //
     // D/X instantiation
+
+
     dx_reg #(
         .AWIDTH(32),
         .DWIDTH(32)
@@ -286,6 +318,9 @@ module rv_core #(
 
     // ---------- X/M ---------- //
     // X/M instantiation
+
+    wire [31:0] xm_ret_addr;
+
     xm_reg #(
       .DWIDTH(32),
       .AWIDTH(32)
@@ -343,6 +378,8 @@ module rv_core #(
 
     // ---------- M/WB ---------- //
     // M/WB instantiation
+
+
     mwb_reg #(
         .DWIDTH(32),
         .AWIDTH(32)
@@ -413,7 +450,7 @@ module rv_core #(
     // wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));
 
     // assign hazard = (hazard_x || hazard_m || hazard_w) && !jump_branch;
-    assign hazard = hazard_load && !jump_branch;
+    assign hazard = hazard_load;
 
     // ---------- CONTROL --------------- //
     // Logic hole 4 (LH4): Please see control.sv for details on LH4

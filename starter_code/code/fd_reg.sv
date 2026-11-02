@@ -28,6 +28,7 @@ module fd_reg #(
     input logic flush_i,
     input logic stall_i,
 
+
   // outputs
   output logic [AWIDTH-1:0] pc_o,
   output logic [DWIDTH-1:0] insn_o
