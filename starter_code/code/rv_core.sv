@@ -319,8 +319,6 @@ module rv_core
     // ---------- X/M ---------- //
     // X/M instantiation
 
-    wire [31:0] xm_ret_addr;
-
     xm_reg #(
       .DWIDTH(32),
       .AWIDTH(32)
