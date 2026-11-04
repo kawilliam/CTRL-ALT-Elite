@@ -160,21 +160,20 @@ sim-all:
 
 # ==============================================================================
 # STANDALONE TESTBENCH RUNNER (Isolates single testbenches without hardcoding HUTs)
+#   Looks for <name>.sv in verif/ first, then in code/testbenches/.
 # ==============================================================================
 
-# Unique prefix prevents conflicts with existing run rules (e.g., make tb-template_tb)
+# Unique prefix prevents conflicts with existing run rules (e.g. make tb-template_tb)
 tb-%: $(SIM_DIR)
-	@echo "------------------------------------------------------------"
-	@echo "Compiling and running dynamic testbench: $*"
-	@echo "Target File: $(VERIF_DIR)/$*.sv"
-	@echo "------------------------------------------------------------"
-	@if [ ! -f "$(VERIF_DIR)/$*.sv" ]; then \
-		echo "ERROR: Testbench file $(VERIF_DIR)/$*.sv does not exist!"; \
+	@TB=$$(ls $(VERIF_DIR)/$*.sv $(DESIGN_DIR)/testbenches/$*.sv 2>/dev/null | head -n1); \
+	if [ -z "$$TB" ]; then \
+		echo "ERROR: testbench '$*' not found in $(VERIF_DIR)/ or $(DESIGN_DIR)/testbenches/"; \
 		exit 1; \
-	fi
-	
-	@# -y and +librescan forces Verilator to dynamically find and extract
-	@# ONLY the hardware files needed by your testbench out of the code dir.
+	fi; \
+	echo "------------------------------------------------------------"; \
+	echo "Compiling and running dynamic testbench: $*"; \
+	echo "Target File: $$TB"; \
+	echo "------------------------------------------------------------"; \
 	$(VERILATOR) --binary -sv \
 		--timing \
 		--trace \
@@ -184,20 +183,20 @@ tb-%: $(SIM_DIR)
 		-I$(VERIF_DIR) \
 		--top-module $* \
 		$(TRACE_FLAGS) \
-		$(VERIF_DIR)/$*.sv \
+		$$TB \
 		--Mdir $(OBJ_DIR)_$* \
-		-o V$*
-	
-	@echo "Executing simulation..."
-	$(OBJ_DIR)_$*/V$*
-	
-	@for vcd in $*.vcd dump.vcd wave.vcd; do \
+		-o V$* || exit $$?; \
+	echo "Executing simulation..."; \
+	$(OBJ_DIR)_$*/V$*; \
+	for vcd in $*.vcd dump.vcd wave.vcd; do \
 		if [ -f "$$vcd" ]; then \
 			mv "$$vcd" $(SIM_DIR)/$*.vcd; \
 			echo "Waveform saved to: $(SIM_DIR)/$*.vcd"; \
 			break; \
 		fi; \
 	done
+
+
 
 
 clean:
