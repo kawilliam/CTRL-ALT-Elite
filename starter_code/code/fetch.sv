@@ -14,12 +14,11 @@ module fetch #(
 	// inputs
 	input logic clk,
 	input logic rst,
-  input logic [AWIDTH - 1:0] next_pc_i,
-  input logic pc_en_i,
-  input logic jump_branch_i,
+    input logic [AWIDTH - 1:0] next_pc_i,
+    input logic pc_en_i,
+    input logic jump_branch_i,
 	// outputs	
-	output logic [AWIDTH - 1:0] pc_o,
-  output logic [DWIDTH - 1:0] insn_o
+	output logic [AWIDTH - 1:0] pc_o
 );
 
     logic [AWIDTH - 1:0] pc;

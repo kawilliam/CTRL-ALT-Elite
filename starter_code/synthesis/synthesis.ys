@@ -8,7 +8,7 @@ verilog_defaults -add -Icode/
 read_slang -Icode \
     code/branch_control.sv \
     code/decode.sv \
-    code/execute.sv \
+    code/alu.sv \
     code/fetch.sv \
     code/igen.sv \
     code/main_memory.sv \

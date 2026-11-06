@@ -1,5 +1,5 @@
 `include "constants.svh"
-`include "execute.sv" // required for this testbench example
+`include "alu.sv" // required for this testbench example
 
 `timescale 1ns/1ps
 

@@ -1,5 +1,5 @@
 `include "constants.svh"
-`include "execute.sv" // alu lives in execute.sv
+`include "alu.sv" // alu lives in alu.sv
 
 `timescale 1ns/1ps
 

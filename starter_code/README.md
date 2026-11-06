@@ -15,7 +15,7 @@ The following files are present in the `code` directory:
 - `igen.sv`: Implements the immediate value generator logic
 - `control.sv`: Implements the control path.
 - `branch_control.sv`: Implements the branching control path
-- `execute.sv`: Implements the execute stage (ALU implementation)
+- `alu.sv`: Implements the execute stage (ALU implementation)
 - `memory.sv`: Top level memory stage that instantiates `memory_controller` and `main_memory`
 - `memory_controller.sv`: Implements the memory controller logic that interfaces with the main memory
 - `main_memory.sv`: Implements the memory module
