@@ -126,19 +126,53 @@ module rv_core
     wire pre_en_ret;
 
     wire is_insn_en;
-    
+
+    // Branch prediction (BHT + BTB)
+    logic bht_taken;                  // BHT: branch at pc predicted taken
+    logic btb_hit;                    // BTB: pc has a stored target
+    logic [AWIDTH-1:0] btb_target;    // BTB: stored target for pc
+    logic bp_taken;                   // fetched branch/jalr predicted taken
+    logic [AWIDTH-1:0] bp_target;     // its predicted target
+    logic [AWIDTH-1:0] f_pred_npc;    // next PC predicted for the fetched instruction
+    logic [AWIDTH-1:0] fd_pred_npc;   // fd pipelined predicted next PC
+    logic [AWIDTH-1:0] dx_pred_npc;   // dx pipelined predicted next PC
+    logic e_ctrl;                     // branch or jalr in execute
+    logic [AWIDTH-1:0] e_npc;         // real next PC of the instruction in execute
+    logic mispredict;                 // predicted next PC was wrong: redirect and flush
+
     // Valid instruction check
     assign is_insn_en = ~flush;
 
-    // TODO: Add branch prediction to lower CPI. Branches and jumps are resolved in execute, causes 2 instuctions to be flushed
-    assign jump_branch = e_brtaken || e_pcsel || pre_en_redir;
-    assign f_pc = (e_brtaken || e_pcsel) ? e_res : (pre_en_redir) ? pre_target : pc;
+    // Branch prediction: jal is redirected by the pre-decoder (target is exact).
+    // A branch is predicted taken when the BHT says so, using the pre-decoder's target.
+    // A jalr (target depends on rs1) is predicted taken when it hits in the BTB.
+    // Execute checks the prediction and redirects (flushing 2 instructions) only on a mispredict.
+
+    // What kind of instruction did we just fetch, and do we think it jumps?
+    // if (it's a branch)      guess_jump = BHT says taken;      guess_addr = pc + imm  (from predecoder)
+    // else if (it's a jalr)   guess_jump = BTB has this pc;     guess_addr = BTB's stored address
+    // else if (it's a jal)    guess_jump = always;              guess_addr = pc + imm  (from predecoder)
+    // else                    guess_jump = no
+    assign bp_taken = (pre_cfi == CFI_BRANCH && bht_taken) || (pre_cfi == CFI_JALR && btb_hit);
+    assign bp_target = (pre_cfi == CFI_BRANCH) ? pre_target : btb_target;
+
+    // Where do we actually fetch next?
+    // if (execute says an older guess was wrong)   next = the correct address from execute
+    // else if (guess_jump)                         next = guess_addr
+    // else                                         next = pc + 4
+    assign f_pc = (mispredict) ? e_npc : (pre_en_redir) ? pre_target : (bp_taken) ? bp_target : pc;
+
+    // Save our guess for this instruction, to be checked in execute
+    assign f_pred_npc = (pre_en_redir) ? pre_target : (bp_taken) ? bp_target : pc + 32'd4;
+
+    // Checks if next anything other than pc + 4, feeds to fetch module
+    assign jump_branch = mispredict || pre_en_redir || bp_taken;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
     stall_flush_logic stall_flush (
         .hazard_i(hazard),
-        .br_jump_i(e_brtaken || e_pcsel),
+        .br_jump_i(mispredict),
         .pc_en_o(pc_en),
         .stall_o(stall),
         .flush_o(flush)
@@ -176,6 +210,35 @@ module rv_core
       .is_redir_o(pre_en_redir)
     );
 
+    // BHT: direction of conditional branches, trained in execute
+    bht #(
+        .AWIDTH(32),
+        .INDEX_BITS(6)
+    ) bht1 (
+      .clk(clk),
+      .rst(reset),
+      .pc_i(pc),
+      .update_i(dx_opcode == `B_TYPE),
+      .update_pc_i(dx_pc),
+      .update_taken_i(e_brtaken),
+      .taken_o(bht_taken)
+    );
+
+    // BTB: targets of jalr, written in execute
+    btb #(
+        .AWIDTH(32),
+        .INDEX_BITS(6)
+    ) btb1 (
+      .clk(clk),
+      .rst(reset),
+      .pc_i(pc),
+      .update_i(e_pcsel),
+      .update_pc_i(dx_pc),
+      .update_target_i(e_res),
+      .hit_o(btb_hit),
+      .target_o(btb_target)
+    );
+
     // ---------- F/D ---------- //
     // F/D instantiation
     fd_reg #(
@@ -188,8 +251,10 @@ module rv_core
       .pc_i(pc),
       .flush_i(flush),
       .stall_i(stall),
+      .pred_npc_i(f_pred_npc),
       .pc_o(fd_pc),
-      .insn_o(fd_insn)
+      .insn_o(fd_insn),
+      .pred_npc_o(fd_pred_npc)
     );
 
     // ---------- DECODE STAGE ---------- //
@@ -262,6 +327,7 @@ module rv_core
       .memren_i(c_memren),
       .memwren_i(c_memwren),
       .wbsel_i(c_wbsel),
+      .pred_npc_i(fd_pred_npc),
       .pc_o(dx_pc),
       .imm_o(dx_imm),
       .rs1data_o(dx_rs1data),
@@ -272,7 +338,8 @@ module rv_core
       .rd_o(dx_rd),
       .rs1_o(dx_rs1),
       .rs2_o(dx_rs2),
-      .ctrl_reg_o(`D_X)
+      .ctrl_reg_o(`D_X),
+      .pred_npc_o(dx_pred_npc)
     );
 
     // ---------- EXECUTE STAGE --------- //
@@ -315,6 +382,17 @@ module rv_core
       .res_o(e_res),
       .brtaken_o(e_brtaken)
     );
+
+    // Branch prediction check: compare the real next PC with the one predicted in fetch
+
+    // Is this an instruction whose guess could be wrong? (i.e. branch or jals)
+    assign e_ctrl = (dx_opcode == `B_TYPE) || e_pcsel;
+
+    // Where does the program really go next?
+    assign e_npc = (e_brtaken || e_pcsel) ? e_res : dx_pc + 32'd4;
+
+    // Compare with what fetch saved
+    assign mispredict = e_ctrl && (dx_pred_npc != e_npc);
 
     // ---------- X/M ---------- //
     // X/M instantiation

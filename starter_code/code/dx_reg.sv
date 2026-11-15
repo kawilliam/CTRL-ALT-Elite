@@ -26,6 +26,7 @@
  * 20) memory read en memren_i
  * 21) memory write en memwren_i
  * 22) writeback sel wbsel_i
+ * 23) predicted next program counter pred_npc_i
  * Outputs:
  * 1) program counter pc_o
  * 2) immediate imm_o
@@ -38,6 +39,7 @@
  * 9) register1 address rs1_o
  * 10) register2 address rs2_o
  * 11) control register ctrl_reg_o
+ * 12) predicted next program counter pred_npc_o
  */
 
  `include "constants.svh"
@@ -70,6 +72,7 @@ module dx_reg #(
         input logic memren_i, // Whether to read from memory
         input logic memwren_i, // Whether to write to memory
         input logic [1:0] wbsel_i, // What to write to reg file - ALU res, mem data, pc+4, or imm
+        input logic [AWIDTH-1:0] pred_npc_i, // next PC fetch predicted for this instruction
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
@@ -82,7 +85,8 @@ module dx_reg #(
   output logic [4:0] rd_o,
   output logic [4:0] rs1_o,
   output logic [4:0] rs2_o,
-  output logic [12:0] ctrl_reg_o
+  output logic [12:0] ctrl_reg_o,
+  output logic [AWIDTH-1:0] pred_npc_o
 );
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -97,6 +101,7 @@ module dx_reg #(
       rs1_o <= '0;
       rs2_o <= '0;
       ctrl_reg_o <= '0;
+      pred_npc_o <= '0;
     end else if (flush_i || stall_i) begin
       pc_o <= '0;
       imm_o <= '0;
@@ -109,6 +114,7 @@ module dx_reg #(
       rs1_o <= '0;
       rs2_o <= '0;
       ctrl_reg_o <= '0;
+      pred_npc_o <= '0;
     end else begin
       pc_o <= pc_i;
       imm_o <= imm_i;
@@ -120,6 +126,7 @@ module dx_reg #(
       rd_o <= rd_i;
       rs1_o <= rs1_i;
       rs2_o <= rs2_i;
+      pred_npc_o <= pred_npc_i;
       ctrl_reg_o <= {alusel_i, wbsel_i, memwren_i, memren_i, rs2sel_i, rs1sel_i, regwren_i, immsel_i, pcsel_i};
     end
   end
