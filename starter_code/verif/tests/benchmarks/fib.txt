@@ -1,0 +1,22 @@
+# fib -- iterative Fibonacci, 10 iterations (fib(11) = 89).
+# Tight loop: register-register add plus a backward branch.
+        addi x8, x0, 0           # a
+        addi x9, x0, 1           # b
+        addi x10, x0, 0          # i
+        addi x11, x0, 10         # n
+loop:   add  x12, x8, x9
+        addi x8, x9, 0
+        addi x9, x12, 0
+        addi x10, x10, 1
+        blt  x10, x11, loop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 89
+        bne  x9, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
