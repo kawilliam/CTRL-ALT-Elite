@@ -1,0 +1,24 @@
+# nested -- two nested loops, 5 outer x 4 inner.
+# The inner loop exits once per outer iteration; each exit is a mispredict a
+# single-loop benchmark can never expose.
+        addi x6, x0, 5           # outer count
+        addi x7, x0, 0           # outer index
+        addi x5, x0, 0           # sum
+outer:  addi x8, x0, 4           # inner count
+        addi x9, x0, 0           # inner index
+inner:  add  x5, x5, x9
+        addi x9, x9, 1
+        blt  x9, x8, inner
+        addi x7, x7, 1
+        blt  x7, x6, outer
+        addi x1, x0, 0           # default: fail
+        addi x10, x0, 30         # 5 outer x (0+1+2+3)
+        bne  x5, x10, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop

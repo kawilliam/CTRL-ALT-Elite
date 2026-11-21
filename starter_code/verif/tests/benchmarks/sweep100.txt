@@ -1,0 +1,19 @@
+# sweep100 -- counted loop, 100 iterations, one branch in the body.
+# Part of the trip-count sweep: how the predictor's benefit scales with loop
+# length (warm-up amortisation).
+        addi x5, x0, 100          # counter
+        addi x8, x0, 0           # iterations observed
+loop:   addi x8, x8, 1
+        addi x5, x5, -1
+        bne  x5, x0, loop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 100
+        bne  x8, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop

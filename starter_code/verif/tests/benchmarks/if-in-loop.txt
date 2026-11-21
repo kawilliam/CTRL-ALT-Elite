@@ -1,0 +1,22 @@
+# if-in-loop -- hot loop; the inner branch is taken 9 of 10 iterations and
+# falls through once. Checks that a rare fall-through inside a hot loop is not
+# poisoned into a permanent mispredict.
+        addi x5, x0, 0           # i
+        addi x6, x0, 10          # n
+        addi x7, x0, 7           # the one iteration that falls through
+        addi x8, x0, 0           # marker
+loop:   addi x5, x5, 1
+        bne  x5, x7, cont        # taken 9 times, not taken once
+        addi x8, x0, 1
+cont:   blt  x5, x6, loop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 1
+        bne  x8, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
