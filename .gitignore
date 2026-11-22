@@ -1,0 +1,9 @@
+# macOS Finder metadata
+.DS_Store
+
+# Simulation and build artifacts
+starter_code/verif/obj_dir*/
+starter_code/verif/Sim/
+starter_code/verif/_results.txt
+starter_code/verif/sim_out.tmp
+*.vcd
