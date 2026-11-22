@@ -75,12 +75,42 @@ Two conclusions, both worth stating in the report:
   costs more than prediction recovers. This is the honest cost side of the design,
   not a bug.
 
-## Fusion opportunity: adjacent add+lw
+## Fusion opportunity: measured before any RTL
 
-`array-idx` exists to answer one question before any macro-op fusion RTL is written:
-how often does an `add` sit immediately before a `lw`?
+Four macro-op fusion variants were considered before writing any RTL. Each is
+judged by its **fire rate** - the share of the dynamic instruction stream that
+could actually fuse - measured over all fourteen kernels rather than assumed
+from one example. `array-idx` exists to make the `add`+`lw` case measurable.
 
-Its loop body is six instructions with exactly one such pair:
+### Census (static pairs per kernel)
+
+| Kernel | `addr>lw` | `addr>sw` | `lw>sw` | load-use |
+|---|---|---|---|---|
+| `array-idx` | 1 | 8 | 0 | 1 |
+| `sum-array` | 1 | 4 | 0 | 1 |
+| the other 12 kernels | **0** | **0** | **0** | **0** |
+
+Two facts decide the question:
+
+- The `addr>lw` pairs are inside loop bodies, so they fire once per iteration.
+- The `addr>sw` pairs are **all in prologues** - the setup that stores 1..8 into
+  memory before the loop. They execute once per program, never per iteration.
+- `lw>sw` - the memory-to-memory copy idiom - occurs **nowhere**. A copy fusion
+  would have a fire rate of exactly zero on this suite.
+
+### What each variant would buy
+
+| Variant | Where it fires | Cycles saved | Verdict |
+|---|---|---|---|
+| `add`+`lw` | 2 of 14 kernels, once per iteration | 8 cycles in `array-idx` (8.8%) | not worth it |
+| `add`+`sw` | 12 pairs, all prologue, none in a loop | ~12 cycles once per program | not worth it |
+| `lw`+`sw` (copy) | nowhere | 0 | nothing to measure |
+| `lw`+consumer | the same array loops | ~17% on `array-idx` | clears the bar, but see below |
+
+### The measured case: array-idx
+
+`array-idx` is the compiler shape for `for (i=0;i<n;i++) sum += a[i];` - six
+instructions per iteration with exactly one adjacent `add`+`lw`:
 
     slli x10, x9, 2        byte offset
     add  x11, x2, x10      address          <- add
@@ -89,40 +119,47 @@ Its loop body is six instructions with exactly one such pair:
     addi x9, x9, 1         i++
     blt  x9, x6, loop
 
-Measured: 91 cycles, 8 stalls, 3 flush cycles, CPI 1.25, so about 73 retired
-instructions and 8 dynamic pairs (one per iteration).
+Measured: 91 cycles, 8 stalls, 3 flush cycles, CPI 1.25 - about 73 retired
+instructions and 8 dynamic pairs.
 
 | Quantity | Value |
 |---|---|
 | fire rate (pairs / retired instructions) | 8 / 73 = **11.0%** |
-| saved cycles, 1 per pair | **8 cycles (8.8% of 91)** |
+| saved cycles, 1 per pair | **8 cycles = 8.8% of total** |
 | `fire rate x cycles` (the loose bound) | 10.0 cycles (11.0%) |
 
 The two bounds differ because only 73 of the 91 cycles are issue cycles: 8 stalls,
-3 flush cycles and pipeline fill cannot be removed by eliminating an instruction.
-Counting one cycle per pair is the tighter and correct bound; multiplying by CPI
-over-credits the fusion by the stall and redirect cycles.
+3 flush cycles and pipeline fill cannot be removed by deleting an instruction.
+One cycle per pair is the tighter and correct bound; multiplying by CPI
+over-credits fusion by the stall and redirect cycles.
 
-### Verdict
+### Why the slot variants are not worth a month
 
-**Below the 15-20% bar, so: analysis only, no RTL.** Three reasons this kernel
-overstates the case rather than understating it:
-
-1. **The pattern is confined to indexed array code.** A census of all fourteen
-   kernels finds `add`+`lw` pairs only in `array-idx` (9 static) and `sum-array`
-   (4); every other kernel has **zero**. Fusion would do nothing for `fib`,
-   `smul`, `nested`, `callret`, `if-in-loop` or any `sweep`.
+1. **The pattern is confined to indexed array code.** `add`+`lw` exists in two of
+   fourteen kernels and in none of `fib`, `smul`, `nested`, `callret`,
+   `if-in-loop` or any `sweep`. A feature that cannot fire in twelve of the
+   fourteen kernels does not justify a month, whatever its rate where it does fire.
 2. **`slli`+`add` and `add`+`lw` target the same address computation.** Fusing the
-   scaled index does not leave a second pair behind, so one saved slot per array
-   access is the ceiling, not two.
-3. **The 8 load-use stalls survive fusion.** The fused op still produces its data
-   one cycle after the consumer needs it, so CPI does not improve; and moving the
-   address add into the load's own cycle shortens the slack, not lengthens it.
+   scaled index leaves no second pair behind, so one saved slot per array access
+   is the ceiling, not two.
+3. **The stalls survive.** The 8 load-use stalls in `array-idx` are the same size
+   as the whole slot opportunity and fusion of two ALU-adjacent ops cannot remove
+   them; the loaded value still arrives a cycle late.
 
-The loop-back `addi`+branch pair is a larger opportunity - it appears once per
-iteration in essentially every kernel, and fusing both would put the saving at
-about 17.6% of this kernel's cycles. That case crosses the bar, but it removes
-branches from the dynamic stream, which is the signal the BHT/BTB is measured on.
+### The one variant that clears the bar
+
+`lw`+consumer - a load fused with the instruction that reads its result, as in
+x86's `add eax,[mem]` - removes **both** the issue slot and the load-use stall:
+about 17% on `array-idx` and 16% on `sum-array`.
+
+It is also the most expensive option considered: the memory read and the ALU
+operation must happen in one cycle, so the ALU gains a third input fed from
+memory and the M-stage path grows by an ALU delay. That is a datapath change, not
+a decode trick, and it moves timing in the wrong direction for the clock-speed
+work.
+
+**Decision: no fusion RTL.** The slot variants fall below the 15-20% bar and the
+only variant above it costs the most and helps two kernels.
 
 ---
 
