@@ -1,5 +1,9 @@
 # Benchmarks
 
+These live under `code/` because only the `code/` folder is submitted. The harness
+reaches them through the symlink `verif/tests/benchmarks`, which is why
+`make sim -C verif/ TEST_DIR=benchmarks` still works.
+
 Representative loop/array workloads used to validate CPI work. These are **not**
 the graded autograder binaries — the grader's sources are not available. They are
 programs of the same algorithmic shape (counted loops, array access, nested loops,
@@ -10,7 +14,7 @@ branch-predictor benefit.
 
     make bench-build -C verif/
 
-`tools/rvasm.py` assembles every `.txt` here into a `.x` hex image next to it. The
+`rvasm.py` (in this folder) assembles every `.txt` here into a `.x` hex image next to it. The
 assembler is validated by reproducing all thirteen hand-written `pipeline_tests`
 images byte for byte.
 
