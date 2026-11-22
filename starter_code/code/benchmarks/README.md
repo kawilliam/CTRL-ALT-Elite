@@ -34,6 +34,7 @@ images byte for byte.
 | `nested` | 5 outer x 4 inner | sum == 30 |
 | `if-in-loop` | hot loop, branch falls through once | marker == 1 |
 | `sum-array` | store/load loop over 4 words | total == 10 |
+| `array-idx` | `s += a[i]` with a scaled index, 8 words | total == 36 |
 | `fib` | iterative Fibonacci | fib(11) == 89 |
 | `smul` | shift-and-add multiply, 32 iterations | 6*7 == 42 |
 | `callret` | 3 calls + 3 returns | 3*5 == 15 |
@@ -73,6 +74,57 @@ Two conclusions, both worth stating in the report:
   2 cycles: its loop-back branch runs only three times, so seeding a new entry
   costs more than prediction recovers. This is the honest cost side of the design,
   not a bug.
+
+## Fusion opportunity: adjacent add+lw
+
+`array-idx` exists to answer one question before any macro-op fusion RTL is written:
+how often does an `add` sit immediately before a `lw`?
+
+Its loop body is six instructions with exactly one such pair:
+
+    slli x10, x9, 2        byte offset
+    add  x11, x2, x10      address          <- add
+    lw   x12, 0(x11)       value            <- lw    (fusable pair)
+    add  x8, x8, x12       sum += value
+    addi x9, x9, 1         i++
+    blt  x9, x6, loop
+
+Measured: 91 cycles, 8 stalls, 3 flush cycles, CPI 1.25, so about 73 retired
+instructions and 8 dynamic pairs (one per iteration).
+
+| Quantity | Value |
+|---|---|
+| fire rate (pairs / retired instructions) | 8 / 73 = **11.0%** |
+| saved cycles, 1 per pair | **8 cycles (8.8% of 91)** |
+| `fire rate x cycles` (the loose bound) | 10.0 cycles (11.0%) |
+
+The two bounds differ because only 73 of the 91 cycles are issue cycles: 8 stalls,
+3 flush cycles and pipeline fill cannot be removed by eliminating an instruction.
+Counting one cycle per pair is the tighter and correct bound; multiplying by CPI
+over-credits the fusion by the stall and redirect cycles.
+
+### Verdict
+
+**Below the 15-20% bar, so: analysis only, no RTL.** Three reasons this kernel
+overstates the case rather than understating it:
+
+1. **The pattern is confined to indexed array code.** A census of all fourteen
+   kernels finds `add`+`lw` pairs only in `array-idx` (9 static) and `sum-array`
+   (4); every other kernel has **zero**. Fusion would do nothing for `fib`,
+   `smul`, `nested`, `callret`, `if-in-loop` or any `sweep`.
+2. **`slli`+`add` and `add`+`lw` target the same address computation.** Fusing the
+   scaled index does not leave a second pair behind, so one saved slot per array
+   access is the ceiling, not two.
+3. **The 8 load-use stalls survive fusion.** The fused op still produces its data
+   one cycle after the consumer needs it, so CPI does not improve; and moving the
+   address add into the load's own cycle shortens the slack, not lengthens it.
+
+The loop-back `addi`+branch pair is a larger opportunity - it appears once per
+iteration in essentially every kernel, and fusing both would put the saving at
+about 17.6% of this kernel's cycles. That case crosses the bar, but it removes
+branches from the dynamic stream, which is the signal the BHT/BTB is measured on.
+
+---
 
 ## Conventions
 
