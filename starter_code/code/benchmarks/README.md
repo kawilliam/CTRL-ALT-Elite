@@ -163,6 +163,48 @@ only variant above it costs the most and helps two kernels.
 
 ---
 
+### Suite-wide ranking (dynamic, all fourteen kernels)
+
+`fusion_analysis.py` recovers the dynamic stream from each kernel's source plus the
+measured retired-instruction count, so pairs inside a loop are counted once per
+iteration rather than once per source line. Totals over the suite: 1339 cycles,
+1123 retired instructions.
+
+| Fusion | Dynamic pairs | Fire rate | Cycles saved | % of cycles | Cost |
+|---|---|---|---|---|---|
+| `addi`+branch (loop-back) | **310** | **27.6%** | 310 | **23.2%** | 3 |
+| `lw`+consumer | 12 | 1.1% | 12 | 0.9% | 5 |
+| `add`+`sw` | 12 | 1.1% | 12 | 0.9% | 2 |
+| `add`+`lw` | 12 | 1.1% | 12 | 0.9% | 2 |
+| `lui`/`auipc`+op | 2 | 0.2% | 2 | 0.1% | 2 |
+| `slt`/`sltu`+branch | 0 | 0% | 0 | 0% | 2 |
+| `lw`+`sw` (copy) | 0 | 0% | 0 | 0% | 3 |
+
+Cost: 1 = trivial, 5 = datapath change.
+
+**Conclusion.** Exactly one fusion is worth anything: **`addi`+conditional-branch**,
+at 23% of cycles. Every memory-side fusion is around 1% of the suite, because the
+patterns only occur in indexed array code and only once per loop iteration.
+
+Note what the earlier per-kernel figure hid: `add`+`lw` is 8.8% of *`array-idx`'s*
+cycles, but `array-idx` is 91 of the suite's 1339 cycles, so suite-wide it is 0.9%.
+
+Why `addi`+branch is the exception: it is the loop counter and the loop test, and
+every counted loop in every kernel ends with that pair. It also needs no new
+datapath - the adder already produces `rs1 + imm` in X and the comparator already
+compares in X, so the fused operation is the adder's result feeding the existing
+comparator, plus pair detection across the D/IF boundary.
+
+The catch is that its savings overlap the branch predictor's. With the BHT enabled
+the `sweep` family already shows a constant 3 flush cycles regardless of trip count,
+so the predictor has already removed the loop-back mispredicts. The 23% above is
+therefore the *issue-slot* saving only, which is why it is additive with the BHT
+rather than a replacement for it. If the fused loop-back also resolved in IF, it
+would additionally remove redirects the BHT is already removing - so those cycles
+cannot be counted twice.
+
+---
+
 ## Conventions
 
 - Program base is `0x01000000` (`BASE_ADDR`).
