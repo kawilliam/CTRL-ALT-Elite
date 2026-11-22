@@ -98,9 +98,24 @@ TRIPS = {"sweep4":4, "sweep10":10, "sweep25":25, "sweep50":50, "sweep100":100,
          "loop10":10, "sum-array":4, "array-idx":8, "fib":10, "nested":20,
          "if-in-loop":10, "smul":32, "callret":3, "smoke":1}
 
+BASE = 0x01000000
+
+def resolve_target(ops, labels):
+    """index of a branch target, from a label or a hex address"""
+    if not ops: return None
+    t = ops[-1].strip().lower()
+    if t in labels: return labels[t]
+    try: v = int(t, 16)
+    except ValueError: return None
+    return (v - BASE)//4 if v >= BASE else None
+
 def main():
-    rows, totals = [], defaultdict(int)
+    rows = []
+    totals = defaultdict(int)
+    restr  = defaultdict(int)
+    back   = defaultdict(int)
     grand_cyc = 0
+
     for f in sorted(glob.glob("*.txt")):
         name = os.path.basename(f)[:-4]
         if name not in MEASURED: continue
@@ -109,60 +124,62 @@ def main():
         dyn = round(cyc / cpi)
         grand_cyc += cyc
 
-        # loop body: branch whose target label is a backward jump
         body = None
         for i,(mn,ops) in enumerate(prog):
-            if mn in COND and ops and ops[-1].lower() in labels:
-                tgt = labels[ops[-1].lower()]
-                if tgt < i:
-                    body = (tgt, i)
-                    break
-        if body is None:
-            body = (0, len(prog)-1)
+            if mn in COND:
+                t = resolve_target(ops, labels)
+                if t is not None and t < i:
+                    body = (t, i); break
+        if body is None: body = (0, len(prog)-1)
         b0, b1 = body
         blen = b1 - b0 + 1
         prologue = b0
-        derived = max(1, (dyn - prologue) // blen) if blen else 1
-        iters = TRIPS.get(name, derived)
+        iters = TRIPS.get(name, max(1, (dyn - prologue) // blen) if blen else 1)
+
+        # (adjacency index, how many times it executes dynamically)
+        dyn_edges = [(i, iters) for i in range(b0, b1)]
+        dyn_edges += [(b1, max(0, iters-1))]                       # back edge
+        dyn_edges += [(i, 1) for i in list(range(0, b0-1)) + list(range(b1, len(prog)-1))]
 
         counts = defaultdict(int)
-        # inside the body, per iteration
-        for i in range(b0, b1):
-            for k,pred in FUSIONS.items():
-                if pred(prog[i], prog[i+1]): counts[k] += iters
-        # the back edge itself (last -> first), per iteration except the last
-        for k,pred in FUSIONS.items():
-            if pred(prog[b1], prog[b0]): counts[k] += max(0, iters-1)
-        # prologue + epilogue: executed once
-        for i in list(range(0,b0-1)) + list(range(b1, len(prog)-1)):
-            for k,pred in FUSIONS.items():
-                if pred(prog[i], prog[i+1]): counts[k] += 1
+        r_cnt = r_back = 0
+        for i, mult in dyn_edges:
+            if i+1 >= len(prog): continue
+            a, b = prog[i], prog[i+1]
+            for k, pred in FUSIONS.items():
+                if pred(a,b): counts[k] += mult
+            # v1 restriction: addi rd == branch rs1
+            if a[0]=='addi' and b[0] in COND and a[1] and b[1] and a[1][0] == b[1][0]:
+                r_cnt += mult
+                t = resolve_target(b[1], labels)
+                if t is not None and t < i+1: r_back += mult
 
-        rows.append((name, cyc, dyn, iters, blen, dict(counts)))
+        rows.append((name, cyc, dyn, iters, blen, dict(counts), r_cnt, r_back))
         for k,v in counts.items(): totals[k] += v
+        restr[name] = r_cnt; back[name] = r_back
 
-    hdr = f"{'kernel':12}{'cyc':>5}{'insns':>7}{'iter':>6}  " + "".join(f"{k:>14}" for k in FUSIONS)
-    print(hdr); print('-'*len(hdr))
-    for name,cyc,dyn,iters,blen,c in rows:
-        print(f"{name:12}{cyc:5}{dyn:7}{iters:6}  " + "".join(f"{c.get(k,0):14}" for k in FUSIONS))
-    print('-'*len(hdr))
     tot_insns = sum(r[2] for r in rows)
-    print(f"{'TOTAL':12}{grand_cyc:5}{tot_insns:7}{'':6}  " + "".join(f"{totals[k]:14}" for k in FUSIONS))
+    print(f"{'kernel':12}{'cyc':>5}{'insns':>7}{'iter':>6}{'add+lw':>8}{'addi+br':>9}{'rs1=rd':>8}{'backward':>10}")
+    print('-'*65)
+    for name,cyc,dyn,iters,blen,c,rc,rb in rows:
+        print(f"{name:12}{cyc:5}{dyn:7}{iters:6}{c.get('add+lw',0):8}{c.get('addi+branch',0):9}{rc:8}{rb:10}")
+    print('-'*65)
+    T_aw = totals['add+lw']; T_ab = totals['addi+branch']; T_r = sum(restr.values()); T_rb = sum(back.values())
+    print(f"{'TOTAL':12}{grand_cyc:5}{tot_insns:7}{'':6}{T_aw:8}{T_ab:9}{T_r:8}{T_rb:10}")
     print()
-    print(f"{'fusion':16}{'dyn pairs':>10}{'fire rate':>11}{'cyc saved':>11}{'% cycles':>10}{'cost':>6}")
-    COST = {'add+lw':2,'add+sw':2,'lw+consumer':5,'addi+branch':3,'slt+branch':2,'lui/auipc+op':2,'lw+sw':3}
-    ranked=[]
-    for k in FUSIONS:
-        n=totals[k]; fr=n/tot_insns; saved=n            # 1 cycle per fused pair
-        pct=100*saved/grand_cyc
-        ranked.append((pct,k,n,fr,saved,COST[k]))
-    for pct,k,n,fr,saved,c in sorted(ranked, reverse=True):
-        print(f"{k:16}{n:10}{100*fr:10.1f}%{saved:11}{pct:9.1f}%{c:6}")
+    def line(label, n):
+        print(f"{label:34}{n:6} pairs   fr {100*n/tot_insns:5.1f}%   {n:4} cycles   {100*n/grand_cyc:5.1f}% of cycles")
+    line("add+lw (address+load)", T_aw)
+    line("addi+branch (unrestricted)", T_ab)
+    line("addi+branch, rs1 == rd (v1)", T_r)
+    line("   of which backward (loop-back)", T_rb)
     print()
-    print("cost: 1=trivial .. 5=datapath change.  useful: >=5% cycles; cheap: cost <=2")
-    for pct,k,n,fr,saved,c in sorted(ranked, reverse=True):
-        verdict = "BUILD" if (pct>=5 and c<=2) else ("analysis only" if pct<5 else "not cheap")
-        print(f"  {k:16} {pct:5.1f}% of cycles, cost {c}  -> {verdict}")
+    if T_r > T_aw:
+        print(f"v1 restriction still wins: {T_r} pairs vs {T_aw} for add+lw ({T_r/T_aw:.1f}x).")
+    else:
+        print(f"RESTRICTION LOSES: {T_r} pairs vs {T_aw} for add+lw - revisit before RTL.")
+    print(f"restriction retains {100*T_r/T_ab:.0f}% of the unrestricted addi+branch pairs;"
+          f" {100*T_rb/T_r:.0f}% of the retained pairs are backward branches.")
 
 if __name__ == "__main__":
     main()

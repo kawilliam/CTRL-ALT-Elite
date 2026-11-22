@@ -203,6 +203,37 @@ rather than a replacement for it. If the fused loop-back also resolved in IF, it
 would additionally remove redirects the BHT is already removing - so those cycles
 cannot be counted twice.
 
+### The v1 restricted rule (what will actually be built)
+
+The ranking above counts every `addi`+branch adjacency. The v1 implementation will
+only recognise the pair when **the branch's rs1 field is the register the `addi`
+writes** - that is what makes the fused operation expressible as "add, then compare
+the result" using the adder and comparator that already exist in X. The rs2 position
+is a later variant.
+
+| Class | Dynamic pairs | Fire rate | Cycles | % of cycles |
+|---|---|---|---|---|
+| `add`+`lw` (best memory-side fusion) | 12 | 1.1% | 12 | 0.9% |
+| `addi`+branch, unrestricted | 310 | 27.6% | 310 | 23.2% |
+| **`addi`+branch, rs1 == rd (v1)** | **287** | **25.6%** | **287** | **21.4%** |
+| of which **backward** (loop-back) | **277** | 24.7% | 277 | 20.7% |
+
+**The restricted rule is still the winner by 24x over `add`+`lw`**, so the
+justification survives the constraint. Two properties matter:
+
+- The restriction retains **93%** of the unrestricted pairs - the counters that walk
+  through loops are written and tested by the same register, so the pattern the rule
+  keeps is almost all of the pattern that exists.
+- **97%** of the retained pairs are backward branches. In practice the v1 rule is a
+  loop-back fusion: it removes one instruction per loop iteration from every counted
+  loop in the suite, independent of prediction.
+
+The one kernel where the restriction changes what gets fused is `if-in-loop`: its
+loop-back is preceded by `addi x8,x0,1` (a marker write) and tested with `blt x5,...`,
+so rs1 != rd and that pair is not captured. The 10 pairs counted there are the
+forward `bne` preceded by `addi x5,x5,1` instead. That is the honest edge of the v1
+rule and a reason the rs2 variant exists.
+
 ---
 
 ## Conventions
