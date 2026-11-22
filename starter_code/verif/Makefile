@@ -220,5 +220,5 @@ help:
 # tools/rvasm.py assembles verif/tests/benchmarks/*.txt into .x images.
 bench-build:
 	@for f in $(TESTS_BASE_DIR)/benchmarks/*.txt; do \
-		python3 $(abspath $(DESIGN_DIR)/../tools/rvasm.py) "$$f" || exit 1; \
+		python3 $(DESIGN_DIR)/benchmarks/rvasm.py "$$f" || exit 1; \
 	done
