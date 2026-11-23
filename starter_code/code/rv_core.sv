@@ -162,7 +162,7 @@ module rv_core
     assign is_insn_en = ~(flush | flush_d);
 
     // Fusion
-    localparam bit FUSE_ENABLE = 1'b0;   // inert for this experiment   // compile-time mask: 0 restores the pre-fusion core exactly
+    localparam bit FUSE_ENABLE = 1'b0;   // fusion is not shipped; see docs/experiments.md Experiment 4
     wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
 
     // Branch prediction: jal is redirected by the pre-decoder (target is exact).
