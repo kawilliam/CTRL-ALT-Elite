@@ -915,6 +915,36 @@ jalr miss; its graded value depends on how call-heavy the graded programs are, w
 inspected. It carries a `resolved` bit to X so execute does not redirect a second time and
 cancel the gain -- exactly the failure mode that leaving `B_TYPE` in `e_ctrl` caused in v1.
 
+### v2 graded results — the load-use fix transfers 6x better than locally
+
+Submitted as `submission-branch-pred-early-resolve-v2.zip`:
+
+| graded program | October | + prediction | + early v1 | + load-use/jalr (v2) | vs v1 |
+|---|---|---|---|---|---|
+| Perf | 0.587 | 0.499 | 0.487 | **0.453** | -7.0\% |
+| Fibonacci | 0.586 | 0.499 | 0.489 | **0.474** | -3.1\% |
+| Bubble sort | 0.248 | 0.236 | 0.231 | **0.196** | -15.2\% |
+| Factorial | 0.147 | 0.127 | 0.123 | **0.113** | -8.1\% |
+| GCD | 0.084 | 0.069 | 0.068 | **0.065** | -4.4\% |
+| Sum array | 0.057 | 0.054 | 0.052 | **0.045** | -13.5\% |
+| Check vowel | 0.183 | 0.174 | 0.173 | 0.175 | +1.2\% |
+| Swap | 0.016 | 0.016 | 0.015 | 0.014 | -6.7\% |
+| Swap shift | 0.017 | 0.016 | 0.016 | 0.015 | -6.3\% |
+| Simple if | 0.013 | 0.012 | 0.012 | 0.012 | 0.0\% |
+| Simple add | 0.012 | 0.011 | 0.011 | 0.011 | 0.0\% |
+| **total** | **1.950** | **1.713** | **1.677** | **1.573** | **-6.2\%** |
+
+All eleven CORRECT. Eight faster, two unchanged, one $+2$\,ms (the grader's quantum).
+
+**The finding worth keeping:** the load-use removal was worth 1.0\% on the project's kernels and
+6.2\% on the graded programs. Identical mechanism, different workload --- the hand-written
+kernels are arithmetic loops, while bubble sort and sum array load array elements in their
+inner loops, which is why they move 15.2\% and 13.5\%.
+
+Against fusion, which the local suite overstated by roughly 50x, this feature was *understated*
+by 1.3x. A hand-written suite can be wrong in both directions; only the graded programs say
+which.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
