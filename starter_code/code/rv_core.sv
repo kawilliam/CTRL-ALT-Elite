@@ -26,6 +26,19 @@ module rv_core
     //               that will feed into jump_branch_i port in fetch module.
     //               No changes are necessary in fetch logic (fetch.sv)
     // fetch signals
+    logic [DWIDTH-1:0] f_insn_b;
+    logic fuse_found;
+    logic fuse_stride8;
+    logic [4:0] fuse_rs2;
+    // fusion payload, fetch -> D -> X
+    logic              fd_fused,   dx_fused,   e_fuse_taken;
+    logic [4:0]        fd_br_rs2;
+    logic [2:0]        fd_br_funct3, dx_br_funct3;
+    logic [31:0]       fd_br_target, dx_br_target;
+    logic [2:0] fuse_funct3;
+    logic [31:0] fuse_target;
+    logic [31:0] fuse_imm;
+
     logic [AWIDTH-1:0] f_pc;          // next-PC input to fetch
     logic [AWIDTH-1:0] pc;            // current PC
     logic [DWIDTH-1:0] f_insn;        // instruction read from memory
@@ -42,6 +55,7 @@ module rv_core
     logic [4:0] d_rd;                 // destination register
     logic [4:0] d_rs1;                // source register 1
     logic [4:0] d_rs2;                // source register 2
+    logic [4:0] rf_rs2;               // register file read
     logic [6:0] d_funct7;             // funct7 field
     logic [2:0] d_funct3;             // funct3 field
     logic [DWIDTH-1:0] d_imm;         // immediate
@@ -143,6 +157,10 @@ module rv_core
     // Valid instruction check
     assign is_insn_en = ~flush;
 
+    // Fusion
+    localparam bit FUSE_ENABLE = 1'b0;   // plumbing first: flip only after the suite is proven byte-identical
+    wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
+
     // Branch prediction: jal is redirected by the pre-decoder (target is exact).
     // A branch is predicted taken when the BHT says so, using the pre-decoder's target.
     // A jalr (target depends on rs1) is predicted taken when it hits in the BTB.
@@ -163,7 +181,9 @@ module rv_core
     assign f_pc = (mispredict) ? e_npc : (pre_en_redir) ? pre_target : (bp_taken) ? bp_target : pc;
 
     // Save our guess for this instruction, to be checked in execute
-    assign f_pred_npc = (pre_en_redir) ? pre_target : (bp_taken) ? bp_target : pc + 32'd4;
+    assign f_pred_npc = (pre_en_redir) ? pre_target 
+                      : (bp_taken) ? bp_target 
+                      : pc + (fuse_on ? 32'd8 : 32'd4);
 
     // Checks if next anything other than pc + 4, feeds to fetch module
     assign jump_branch = mispredict || pre_en_redir || bp_taken;
@@ -189,6 +209,7 @@ module rv_core
         .next_pc_i(f_pc),
         .pc_en_i(pc_en),
         .jump_branch_i(jump_branch),
+        .stride8_i(fuse_on),
         .pc_o(pc)
     );
 
@@ -239,6 +260,20 @@ module rv_core
       .target_o(btb_target)
     );
 
+    // Macro-op fusion: addi + branch
+    fuse_detect fuse_detect1 (
+      .insn_a_i (f_insn),
+      .insn_b_i (f_insn_b),
+      .pc_i (pc),
+      .is_insn_i (is_insn_en),
+      .fused_o (fuse_found),
+      .stride8_o (fuse_stride8),
+      .rs2_o (fuse_rs2),
+      .br_funct3_o (fuse_funct3),
+      .br_target_o (fuse_target),
+      .br_imm_o (fuse_imm)
+    );
+
     // ---------- F/D ---------- //
     // F/D instantiation
     fd_reg #(
@@ -252,9 +287,17 @@ module rv_core
       .flush_i(flush),
       .stall_i(stall),
       .pred_npc_i(f_pred_npc),
+      .fused_i(fuse_on),
+      .br_rs2_i(fuse_rs2),
+      .br_funct3_i(fuse_funct3),
+      .br_target_i(fuse_target),
       .pc_o(fd_pc),
       .insn_o(fd_insn),
-      .pred_npc_o(fd_pred_npc)
+      .pred_npc_o(fd_pred_npc),
+      .fused_o(fd_fused),
+      .br_rs2_o(fd_br_rs2),
+      .br_funct3_o(fd_br_funct3),
+      .br_target_o(fd_br_target)
     );
 
     // ---------- DECODE STAGE ---------- //
@@ -328,6 +371,9 @@ module rv_core
       .memwren_i(c_memwren),
       .wbsel_i(c_wbsel),
       .pred_npc_i(fd_pred_npc),
+      .fused_i(fd_fused),
+      .br_funct3_i(fd_br_funct3),
+      .br_target_i(fd_br_target),
       .pc_o(dx_pc),
       .imm_o(dx_imm),
       .rs1data_o(dx_rs1data),
@@ -339,7 +385,10 @@ module rv_core
       .rs1_o(dx_rs1),
       .rs2_o(dx_rs2),
       .ctrl_reg_o(`D_X),
-      .pred_npc_o(dx_pred_npc)
+      .pred_npc_o(dx_pred_npc),
+      .fused_o(dx_fused),
+      .br_funct3_o(dx_br_funct3),
+      .br_target_o(dx_br_target)
     );
 
     // ---------- EXECUTE STAGE --------- //
@@ -386,10 +435,40 @@ module rv_core
     // Branch prediction check: compare the real next PC with the one predicted in fetch
 
     // Is this an instruction whose guess could be wrong? (i.e. branch or jals)
-    assign e_ctrl = (dx_opcode == `B_TYPE) || e_pcsel;
+    assign e_ctrl = (dx_opcode == `B_TYPE) || e_pcsel || dx_fused;
+
+    // Fused compare: the branch in the pair compares the addi's result
+    logic fuse_breq, fuse_brlt, fused_brtaken;
+
+    branch_control #(.DWIDTH(DWIDTH)) fuse_cmp (
+      .opcode_i(`B_TYPE),
+      .funct3_i(dx_br_funct3),
+      .rs1_i(e_res),
+      .rs2_i(fwd_rs2),
+      .breq_o(fuse_breq),
+      .brlt_o(fuse_brlt)
+    );
+
+    always_comb begin
+      fused_brtaken = 1'b0;
+      case (dx_br_funct3)
+        `F3_BEQ: fused_brtaken = fuse_breq;
+        `F3_BNE:  fused_brtaken = !fuse_breq;
+        `F3_BLT:  fused_brtaken =  fuse_brlt;
+        `F3_BLTU: fused_brtaken =  fuse_brlt;
+        `F3_BGE:  fused_brtaken = !fuse_brlt;
+        `F3_BGEU: fused_brtaken = !fuse_brlt;
+        default: fused_brtaken = 1'b0;
+      endcase
+    end
+
+    assign e_fuse_taken = dx_fused && fused_brtaken;
+
 
     // Where does the program really go next?
-    assign e_npc = (e_brtaken || e_pcsel) ? e_res : dx_pc + 32'd4;
+    assign e_npc = (e_fuse_taken) ? dx_br_target 
+                : (e_brtaken || e_pcsel) ? e_res 
+                : dx_pc + (dx_fused ? 32'd8 : 32'd4);
 
     // Compare with what fetch saved
     assign mispredict = e_ctrl && (dx_pred_npc != e_npc);
@@ -442,6 +521,7 @@ module rv_core
         .clk(clk),
         .rst(reset),
         .pc_i(pc),
+        .pc2_i(pc + 32'd4),
         .addr_i(xm_alu_res),
         .data_i(mem_data),
         .funct3_i(xm_funct3),
@@ -449,6 +529,7 @@ module rv_core
         .memwren_i(mem_memwren),
         .insnen_i(insn_en),
         .insn_o(f_insn),
+        .insn2_o(f_insn_b),
         .data_o(m_data_o)
     );
 
@@ -499,7 +580,7 @@ module rv_core
     // ---------- REGISTER FILE ------- //
 
     // ---- Control Signal Wires (WB) -- //
-    
+    assign rf_rs2 = fd_fused ? fd_br_rs2 : d_rs2;
 
     // Register file instantiation
     register_file #(
@@ -508,7 +589,7 @@ module rv_core
       .clk(clk),
       .rst(reset),
       .rs1_i(d_rs1),
-      .rs2_i(d_rs2),
+      .rs2_i(rf_rs2),
       .rd_i(mw_rd),
       .datawb_i(wb_data),
       .regwren_i(mem_regwren),

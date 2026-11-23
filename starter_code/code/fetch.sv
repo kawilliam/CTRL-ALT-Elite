@@ -17,6 +17,7 @@ module fetch #(
     input logic [AWIDTH - 1:0] next_pc_i,
     input logic pc_en_i,
     input logic jump_branch_i,
+    input logic stride8_i,
 	// outputs	
 	output logic [AWIDTH - 1:0] pc_o
 );
@@ -33,7 +34,7 @@ module fetch #(
                 pc <= next_pc_i;
             end
             else begin
-                pc <= next_pc_i + 32'd4;
+                pc <= next_pc_i + (stride8_i ? 32'd8 : 32'd4);
             end
         end
     end

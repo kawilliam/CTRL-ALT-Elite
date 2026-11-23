@@ -31,26 +31,46 @@ module fd_reg #(
     input logic flush_i,
     input logic stall_i,
     input logic [AWIDTH-1:0] pred_npc_i, // next PC fetch predicted for this instruction
+    input logic fused_i,
+    input logic [4:0] br_rs2_i,
+    input logic [2:0] br_funct3_i,
+    input logic [AWIDTH-1:0] br_target_i,
 
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
   output logic [DWIDTH-1:0] insn_o,
-  output logic [AWIDTH-1:0] pred_npc_o
+  output logic [AWIDTH-1:0] pred_npc_o,
+  output logic fused_o,
+  output logic [4:0] br_rs2_o,
+  output logic [2:0] br_funct3_o,
+  output logic [AWIDTH-1:0] br_target_o
 );
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
       pc_o <= '0;
       insn_o <= `NOP;
       pred_npc_o <= '0;
+      fused_o <= 1'b0;
+      br_rs2_o <= 5'd0;
+      br_funct3_o <= 3'd0;
+      br_target_o <= '0;
     end else if (flush_i) begin
       pc_o <= '0;
       insn_o <= `NOP;
       pred_npc_o <= '0;
+      fused_o <= 1'b0;
+      br_rs2_o <= 5'd0;
+      br_funct3_o <= 3'd0;
+      br_target_o <= '0;
     end else if (!stall_i) begin
       pc_o <= pc_i;
       insn_o <= insn_i;
       pred_npc_o <= pred_npc_i;
+      fused_o <= fused_i;
+      br_rs2_o <= br_rs2_i;
+      br_funct3_o <= br_funct3_i;
+      br_target_o <= br_target_i;
     end
   end
 

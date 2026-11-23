@@ -31,6 +31,7 @@ module memory #(
     input  logic clk,
     input  logic rst,
     input  logic [AWIDTH-1:0] pc_i, // instruction address
+    input  logic [AWIDTH-1:0] pc2_i, // Macro op fusion 
     input  logic [AWIDTH-1:0] addr_i, // data address
     input  logic [DWIDTH-1:0] data_i, // data to write to memory
     input  logic [2:0] funct3_i,
@@ -38,6 +39,7 @@ module memory #(
     input  logic memwren_i,
     input  logic insnen_i,
     output logic [DWIDTH-1:0] insn_o,
+    output logic [DWIDTH-1:0] insn2_o,
     output logic [DWIDTH-1:0] data_o
 );
 
@@ -73,6 +75,7 @@ module memory #(
         .clk(clk),
         .rst(rst),
         .pc_i(pc_i),
+        .pc2_i(pc2_i),
         .addr_i(con_to_mem_addr),
         .data_i(con_to_mem_data),
         .bytelane_i(con_to_mem_bytelane),
@@ -80,6 +83,7 @@ module memory #(
         .memwren_i(memwren_i),
         .insnen_i(insnen_i),
         .insn_o(insn_o),
+        .insn2_o(insn2_o),
         .data_o(mem_to_con_data)
     );
 

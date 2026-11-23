@@ -33,6 +33,7 @@ module main_memory #(
     input  logic clk,
     input  logic rst,
     input  logic [AWIDTH-1:0] pc_i, // instruction address
+    input  logic [AWIDTH-1:0] pc2_i, // Macro op fusion
     input  logic [AWIDTH-1:0] addr_i,           // address of where to write to memory
     input  logic [DWIDTH-1:0] data_i,           // data to be written to memory
     input  logic [(DWIDTH/8)-1:0] bytelane_i,   // bytelane for 32-bit memory blocks (like RAM)
@@ -41,6 +42,7 @@ module main_memory #(
     input  logic insnen_i,                      // instruction read enable
     // outputs
     output logic [DWIDTH-1:0] insn_o,           // instruction output
+    output logic [DWIDTH-1:0] insn2_o,
     output logic [DWIDTH-1:0] data_o            // read data from memory output
     // ------------------- //
 );
@@ -77,35 +79,29 @@ module main_memory #(
     `endif
 
     //---------- Instruction Load ----------//
-    logic [AWIDTH-1:0] program_counter;
-    assign program_counter = (pc_i - BASE_ADDR) >> 2;
-
-    // READ ONLY
-    always_comb begin
-        insn_o = '0;
-        if (rst) begin
-            insn_o = '0;
-        end
-        else if (insnen_i) begin
+    function automatic logic [DWIDTH-1:0] read_insn(input logic [AWIDTH-1:0] addr);
+        logic [AWIDTH-1:0] idx;
+        idx = (addr - BASE_ADDR) >> 2;
+        read_insn = '0;
+        if (!rst && insnen_i) begin
             `ifndef SYNTHESIS
-            if ($isunknown(pc_i)) begin
-                insn_o = '0;
-            end
-            else
-            `endif
-            if ((pc_i >= BASE_ADDR) &&
-                     (pc_i + 32'd3 < BASE_ADDR + MEM_BYTES)) begin
-                insn_o = main_memory[program_counter];
-            end
+            if ($isunknown(addr)) begin
+                read_insn = '0;
+            end else
+            `endif 
+            if ((addr >= BASE_ADDR) && (addr + 32'd3 < BASE_ADDR + MEM_BYTES))
+                read_insn = main_memory[idx];
             else begin
-                insn_o = 32'hDEAD_BEEF;
+                read_insn = 32'hDEAD_BEEF;
                 `ifndef SYNTHESIS
-                $display("IMEMORY: 00B read @0x%08h (mapped 0x%08h)",
-                         pc_i, program_counter);
+                $display("IMEMORY: read @0x%08h out of range (mapped 0x%08h)", addr, idx);
                 `endif
-            end
+            end 
         end
-    end
+    endfunction
+
+    assign insn_o = read_insn(pc_i);
+    assign insn2_o = read_insn(pc2_i);
 
     // Shift byte address from memory controller to word index for memory
     logic [AWIDTH-1:0] address;
