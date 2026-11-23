@@ -1,0 +1,600 @@
+# Predecoder / Core Experiments Log
+
+Running log for the experiment loop (methodology: `AGENTS.md` at the repo root,
+which points to `EECS 4201/AGENTS.md`).
+**One row per variant. No row = the experiment did not happen.**
+
+> **Location:** this log lives inside the RTL repo (`starter_code/docs/experiments.md`)
+> so that every logged number is versioned next to the code that produced it.
+> It previously lived at `EECS 4201/Core Improvement Plan/experiments.md`.
+
+---
+
+## Baseline (step 0 — frozen)
+
+- **Date:** 2026-11-01 19:30
+- **Branch/commit:** `main` @ `2ee9897` ("Cleanup (#8)"), clean working tree
+- **Command:** `make sim-all -C verif/`
+- **Raw log:** `verif/_results.txt`, block starting `Test Directory: insn-bmarks  Date: 2026-11-01 19:30:22` through `sample-bmarks  Date: 2026-11-01 19:30:44`
+- **Known-fail list (frozen — these may not grow, ever):** *none.* 53/53 tests PASS.
+
+This makes the regression rule strict: no test may fail, and no CPI may move
+except where a step-1 hypothesis named that movement in advance.
+
+### insn-bmarks (38)
+
+| Test | Result | Cycles | Stalls | Squashed | CPI |
+|------|--------|--------|--------|----------|-----|
+| `rv32ui-p-add`    | PASS | 463 | 0 | 16 | 1.08 |
+| `rv32ui-p-addi`   | PASS | 222 | 0 | 7  | 1.09 |
+| `rv32ui-p-and`    | PASS | 483 | 0 | 16 | 1.08 |
+| `rv32ui-p-andi`   | PASS | 178 | 0 | 7  | 1.11 |
+| `rv32ui-p-auipc`  | PASS | 30  | 0 | 3  | 1.50 |
+| `rv32ui-p-beq`    | PASS | 311 | 0 | 27 | 1.23 |
+| `rv32ui-p-bge`    | PASS | 347 | 0 | 36 | 1.28 |
+| `rv32ui-p-bgeu`   | PASS | 372 | 0 | 36 | 1.26 |
+| `rv32ui-p-blt`    | PASS | 311 | 0 | 27 | 1.23 |
+| `rv32ui-p-bltu`   | PASS | 336 | 0 | 27 | 1.21 |
+| `rv32ui-p-bne`    | PASS | 315 | 0 | 29 | 1.25 |
+| `rv32ui-p-jal`    | PASS | 27  | 0 | 3  | 1.59 |
+| `rv32ui-p-jalr`   | PASS | 98  | 0 | 12 | 1.40 |
+| `rv32ui-p-lb`     | PASS | 227 | 2 | 7  | 1.10 |
+| `rv32ui-p-lbu`    | PASS | 227 | 2 | 7  | 1.10 |
+| `rv32ui-p-lh`     | PASS | 239 | 2 | 7  | 1.09 |
+| `rv32ui-p-lhu`    | PASS | 246 | 2 | 7  | 1.09 |
+| `rv32ui-p-lui`    | PASS | 33  | 0 | 1  | 1.22 |
+| `rv32ui-p-lw`     | PASS | 249 | 2 | 7  | 1.09 |
+| `rv32ui-p-or`     | PASS | 486 | 0 | 16 | 1.08 |
+| `rv32ui-p-ori`    | PASS | 185 | 0 | 7  | 1.11 |
+| `rv32ui-p-sb`     | PASS | 422 | 0 | 13 | 1.08 |
+| `rv32ui-p-sh`     | PASS | 475 | 0 | 13 | 1.07 |
+| `rv32ui-p-simple` | PASS | 7   | 0 | 0  | 2.33 |
+| `rv32ui-p-sll`    | PASS | 491 | 0 | 16 | 1.08 |
+| `rv32ui-p-slli`   | PASS | 221 | 0 | 7  | 1.09 |
+| `rv32ui-p-slt`    | PASS | 457 | 0 | 16 | 1.09 |
+| `rv32ui-p-slti`   | PASS | 217 | 0 | 7  | 1.09 |
+| `rv32ui-p-sltiu`  | PASS | 217 | 0 | 7  | 1.09 |
+| `rv32ui-p-sltu`   | PASS | 457 | 0 | 16 | 1.09 |
+| `rv32ui-p-sra`    | PASS | 510 | 0 | 16 | 1.08 |
+| `rv32ui-p-srai`   | PASS | 236 | 0 | 7  | 1.08 |
+| `rv32ui-p-srl`    | PASS | 504 | 0 | 16 | 1.08 |
+| `rv32ui-p-srli`   | PASS | 230 | 0 | 7  | 1.08 |
+| `rv32ui-p-sub`    | PASS | 455 | 0 | 16 | 1.09 |
+| `rv32ui-p-sw`     | PASS | 482 | 0 | 13 | 1.07 |
+| `rv32ui-p-xor`    | PASS | 485 | 0 | 16 | 1.08 |
+| `rv32ui-p-xori`   | PASS | 187 | 0 | 7  | 1.11 |
+
+### pipeline_tests (13)
+
+| Test | Result | Cycles | Stalls | Squashed | CPI |
+|------|--------|--------|--------|----------|-----|
+| `5-stage-pipeline`     | PASS | 14 | 0 | 0 | 1.40 |
+| `br-taken`             | PASS | 16 | 0 | 1 | 1.60 |
+| `load-use-stall`       | PASS | 23 | 1 | 0 | 1.28 |
+| `mx-bypass-rs1-alu`    | PASS | 11 | 0 | 0 | 1.57 |
+| `mx-bypass-rs1-brcomp` | PASS | 14 | 0 | 0 | 1.40 |
+| `mx-bypass-rs2-alu`    | PASS | 11 | 0 | 0 | 1.57 |
+| `mx-bypass-rs2-brcomp` | PASS | 14 | 0 | 0 | 1.40 |
+| `wd-stall`             | PASS | 13 | 0 | 0 | 1.44 |
+| `wm-bypass-rs2-mem`    | PASS | 22 | 0 | 0 | 1.22 |
+| `wx-bypass-rs1-alu`    | PASS | 12 | 0 | 0 | 1.50 |
+| `wx-bypass-rs1-brcomp` | PASS | 14 | 0 | 0 | 1.40 |
+| `wx-bypass-rs2-alu`    | PASS | 12 | 0 | 0 | 1.50 |
+| `wx-bypass-rs2-brcomp` | PASS | 14 | 0 | 0 | 1.40 |
+
+### sample-bmarks (2)
+
+| Test | Result | Cycles | Stalls | Squashed | CPI |
+|------|--------|--------|--------|----------|-----|
+| `test1` | PASS | 53 | 1 | 8 | 1.56 |
+| `test2` | PASS | 64 | 2 | 9 | 1.52 |
+
+Regression rule for all future rows: every baseline-passing test still
+passes, and its CPI does not move — unless the change is *designed* to move
+CPI, in which case the hypothesis (step 1) said so first.
+
+### Metrics convention (applies to every experiment)
+
+- `cpi = total_cycles / insn_exe` (`top_tb.sv`). It is a **ratio**, so it is only comparable
+  between builds with the **same dynamic instruction count**.
+- **CPI alone is not a sufficient result.** Every row must also report cycles and the retired
+  instruction count, so that a change in the denominator can never be mistaken for a change in
+  performance.
+- Any experiment that changes the instruction count — instruction fusion, macro-ops, any change
+  that eliminates work rather than reordering it — must report **cycles and IPC**
+  (`instructions / cycles`). In those experiments CPI may move in the "wrong" direction while
+  the core gets faster, and CPI must not be used as a pass/fail criterion.
+
+---
+
+## Experiment 1 — Fetch-stage predecoder
+
+### Contract (step 2) — as built
+
+Module `pre_decode` in `code/pre_decode.sv`. Purely combinational; evaluated in
+IF in the same cycle the instruction word is presented.
+
+| Port | Dir | Width | Meaning |
+|------|-----|-------|---------|
+| `insn_i`    | in  | 32       | instruction word read from IMEM at `pc_i` |
+| `pc_i`      | in  | 32       | address of that instruction |
+| `is_insn_i` | in  | 1        | IF slot holds a real instruction; low ⇒ all outputs forced to 0 |
+| `target_o`  | out | 32       | redirect target for JAL (branch target computed but unused until a BPU exists) |
+| `ra_o`      | out | 32       | `pc_i + 4`, the link value (and future RAS push data) |
+| `cfit_o`    | out | `cfi_t`  | CFI class: `CFI_NONE` / `CFI_BRANCH` / `CFI_JAL` / `CFI_JALR` |
+| `is_call_o` | out | 1        | link-writing jump, `rd ∈ {x1, x5}` |
+| `is_ret_o`  | out | 1        | `jalr x0, imm(x1|x5)` |
+| `is_redir_o`| out | 1        | this instruction redirects from IF — JAL only |
+
+Behavioural rules that define the golden model:
+
+1. `is_insn_i == 0` ⇒ every output 0.
+2. `ra_o = pc_i + 4` whenever `is_insn_i` is high.
+3. **JAL:** `target_o = pc_i + sign_extend(J-imm)`, `is_redir_o = 1`, `cfit = CFI_JAL`.
+4. **B_TYPE:** `target_o = pc_i + sign_extend(B-imm)`, `is_redir_o = 0` (direction unknown in IF), `cfit = CFI_BRANCH`.
+5. **JALR:** `target_o = 0`, `is_redir_o = 0` (needs `rs1`; remains an EX redirect), `cfit = CFI_JALR`.
+6. No state, no clock — outputs change only with the inputs.
+
+**Why these ports.** IMEM is combinational (`main_memory.sv`), so IF sees
+`f_insn` in the very cycle `pc` drives it; a JAL can therefore be resolved and
+applied in that cycle with no squash at all. `ra_o`, `is_call_o` and `is_ret_o`
+exist for the future return-address stack, which lives entirely in IF and never
+enters the pipeline.
+
+**System-level wiring contract** (identical on every variant, so CPI stays
+comparable): `flush` is built from the **EX** redirects only (`e_brtaken ||
+e_pcsel`); `f_pc` is a three-way priority mux (EX result → `pre_target` → `pc`);
+`is_insn_i` is the complement of `flush`; `hazard` is not gated by any redirect.
+
+### Hypothesis (step 1) — amended 2026-11-01
+
+Hoisting JAL resolution from EX to IF removes both the squashed instructions and
+the redirect bubble for every executed `jal`, so tests containing JALs must show
+**fewer cycles and fewer squashes**. Every test that executes no JAL must be
+**bit-identical** in cycles/stalls/squashes/CPI. Implementation style among the
+four variants must not change any of these numbers.
+
+*Original wording ("implementation style does not change behavior — identical
+CPI") under-specified the experiment: written as it stood, the regression rule
+would have filed the designed JAL improvement as a bug.*
+
+### Variant rows
+
+| Variant | Branch | Unit TB | Pass-set vs baseline | CPI delta | Wall-time | Waveform findings | Keep/Drop + why |
+|---------|--------|---------|----------------------|-----------|-----------|-------------------|-----------------|
+| v1 — flat `case`      | `feature/predecoder` (commit pending — TB + log not yet committed) | `verif/pre_decode_tb.sv` — **27/27 pass** (step 4 closed 2026-11-03) | 53/53 PASS, unchanged | 4 tests faster: `jal` −4, `auipc` −4, `test1` −6, `test2` −8; other 49 unchanged | ~1 s/test | read in Surfer; state saved `verif/wf_signals/Nov 1st jal wave.ron`. JAL: `pre_en_redir` + `jump_branch` in-cycle, `pc` takes `pre_target` next edge | adopted as the base for v2–v4 — see reproduction caveat |
+| v2 — two-level PLA    | `feature/predec-v2-pla`    | | | | | | not started |
+| v3 — constant LUT/ROM | `feature/predec-v3-lut`    | | | | | | not started |
+| v4 — one-hot plane    | `feature/predec-v4-onehot` | | | | | | not started |
+
+### v1 results vs baseline (run 2026-11-01 19:15)
+
+| Test | Baseline (cyc / stall / squash / CPI) | v1 | Δ cycles |
+|------|----------------------------------------|----|----------|
+| `rv32ui-p-jal`   | 27 / 0 / 3 / 1.59 | 23 / 0 / 1 / 1.35 | **−4** |
+| `rv32ui-p-auipc` | 30 / 0 / 3 / 1.50 | 26 / 0 / 1 / 1.30 | **−4** |
+| `test1`          | 53 / 1 / 8 / 1.56 | 47 / 1 / 3 / 1.34 | **−6** |
+| `test2`          | 64 / 2 / 9 / 1.52 | 56 / 2 / 3 / 1.30 | **−8** |
+| `rv32ui-p-jalr`  | 98 / 0 / 12 / 1.40 | 98 / 0 / 12 / 1.40 | 0 — predicted exactly 0 |
+
+All other 48 tests: identical cycles, stalls, squashes and CPI.
+
+**Metric caveat.** `top_tb.sv` increments `squashes` once per cycle `flush` is
+high, but a redirect also costs the following cycle (the hole left behind). A
+removed JAL redirect is therefore worth **2 cycles**, not 1 — which is why
+`test2` drops 8 cycles on only 4 fewer flush cycles. Read the waveform, not
+just the counter, before quoting a redirect's cost.
+
+### Reproduction caveat — close before trusting this row
+
+The v1 numbers come from the working tree at 19:15, which contained
+`code/alu.sv` and **no** `code/execute.sv`. Commit `4041be4` still contains
+**both** `alu.sv` and `execute.sv` (identical, both `module alu`), so that
+commit does not build. To reproduce:
+
+1. `git rm code/execute.sv` on the branch and commit.
+2. Update `code/testbenches/alu_tb.sv:2`, `verif/template_tb.sv:2` and
+   `synthesis/synthesis.ys:11` to name `alu.sv`.
+3. Re-run `make sim-all -C verif/` and confirm the four rows above.
+
+### Outstanding work on this experiment
+
+- [x] Unit TB for `pre_decode` (step 4) — `verif/pre_decode_tb.sv`, **27/27 pass** on v1 (2026-11-03); must now pass unmodified on v2–v4
+- [x] Re-run `sim-all` after the `execute.sv`/`alu.sv` fix — 53/53 PASS, v1 numbers reproduced exactly (2026-11-01 19:38)
+- [ ] Waveform (step 6) — artifact saved (`verif/wf_signals/Nov 1st jal wave.ron`); still to note explicitly: `flush` stays low in the JAL's IF cycle and `fd_insn` latches the JAL rather than `NOP`
+- [ ] Variants v2–v4 (step 3)
+- [ ] Commit this working tree so the v1 row points at a reproducible commit
+
+### Decision
+
+- **Winner:** pending — v2/v3/v4 not built
+- **Reasoning:** v1 is functionally correct and is the adopted base for the next experiment; the style comparison has not been run, so calling it the winner would be premature
+- **Date merged:** —
+
+---
+
+## Experiment 2 — BHT + BTB (branch prediction)
+
+**Hypothesis (step 1):** predicting taken branches in IF removes the 2-cycle redirect
+penalty on correctly predicted branches; JALR targets come from the BTB. Every test that
+executes no predicted-taken branch must be bit-identical.
+
+**Contract (step 2):**
+
+- `bht.sv` — table of 2-bit saturating counters (`STRONG_NT … STRONG_T`) indexed by
+  `pc[INDEX_BITS+1:2]`, **no tags**. Read combinationally with the fetch PC; trained in EX
+  from `dx_pc[INDEX_BITS+1:2]` with `e_brtaken`. Predicts taken in `WEAK_T`/`STRONG_T`.
+- `btb.sv` — `INDEX_BITS` entries holding `valid`, `tag`, `target`. **Tagged:**
+  `hit_o = valid[rd_idx] && tags[rd_idx] == pc_i[31:INDEX_BITS+2]`. Written only on
+  `e_pcsel` (JALR), because branch targets already come from the pre-decoder.
+- `rv_core.sv:156` `bp_taken = (CFI_BRANCH && bht_taken) || (CFI_JALR && btb_hit)`.
+  The guess is carried to EX in `fd_pred_npc`/`dx_pred_npc` and checked by
+  `mispredict = e_ctrl && (dx_pred_npc != e_npc)` (`rv_core.sv:395`).
+
+**Result (`feature/bht_btb`, run 2026-11-11 23:21), vs the predecoder build:**
+
+| Test | predecoder | + BHT/BTB | Δ |
+|------|-----------|-----------|---|
+| `rv32ui-p-jalr` | 98 / 12 / 1.40 | **92 / 9 / 1.31** | **−6 cycles, −3 flushes** |
+| `rv32ui-p-bne`  | 315 / 29 | 319 / 31 | +4, +2 |
+| `rv32ui-p-beq`  | 311 / 27 | 317 / 30 | +6, +3 |
+| `rv32ui-p-blt`  | 311 / 27 | 317 / 30 | +6, +3 |
+| `rv32ui-p-bltu` | 336 / 27 | 342 / 30 | +6, +3 |
+| `rv32ui-p-bge`  | 347 / 36 | 357 / 41 | +10, +5 |
+| `rv32ui-p-bgeu` | 372 / 36 | 382 / 41 | +10, +5 |
+| everything else | — | identical | 0 |
+
+**Findings:**
+
+- **BTB indirect-target prediction works.** `jalr` improved 6 cycles with no RAS in the
+  design — the only source is the tagged BTB. This is a real, adoptable win.
+- **The BHT regressed every conditional-branch test.** Each extra flush costs exactly
+  2 cycles (+3→+6, +5→+10), so these are genuine extra redirects, not counter artefacts.
+- **No test anywhere improved**, so the BHT never produced a correct taken prediction that
+  saved a cycle. Cold counters reset to `STRONG_NT`, so a cold entry cannot predict taken —
+  the false taken predictions had to come from entries trained by *other* branches.
+
+**Decision:** BTB adoptable. BHT not mergeable as-is — investigate the extra taken
+predictions (Experiment 3).
+
+---
+
+## Experiment 3 — BHT index size (aliasing)
+
+**Hypothesis:** 64 untagged entries index `pc[7:2]`, i.e. **one entry per 256 bytes of
+code**. A taken branch trains an entry that a different, not-taken branch then reads as
+"taken", costing one guaranteed redirect. Enlarging the index should remove the entire
+regression if aliasing is the cause.
+
+**Method note (worth recording):** the first attempt changed only the default
+`parameter INDEX_BITS = 10` in `bht.sv`. The instantiation at `rv_core.sv:216` overrides it
+with `.INDEX_BITS(6)`, so the design did not change and the two runs were **byte-identical**
+(md5 `6be9e71c…` for both blocks). The experiment only began once the override itself was
+changed to 10. BTB left at 6 (`rv_core.sv:230`) — only six `jalr` in the suite, and it is
+already tagged.
+
+**Result (`scratch/bht-test`, `INDEX_BITS = 10`, run 2026-11-11 23:47):**
+
+| Test | predecoder | idx6 | idx10 |
+|------|-----------|------|-------|
+| `rv32ui-p-beq`  | 311 / 27 | 317 / 30 | **311 / 27** |
+| `rv32ui-p-blt`  | 311 / 27 | 317 / 30 | **311 / 27** |
+| `rv32ui-p-bltu` | 336 / 27 | 342 / 30 | **336 / 27** |
+| `rv32ui-p-bne`  | 315 / 29 | 319 / 31 | **315 / 29** |
+| `rv32ui-p-bge`  | 347 / 36 | 357 / 41 | **347 / 36** |
+| `rv32ui-p-bgeu` | 372 / 36 | 382 / 41 | **372 / 36** |
+| `rv32ui-p-jalr` | 98 / 12 | 92 / 9 | 92 / 9 (unchanged) |
+
+All 53 rows compared against the predecoder run: **only `jalr` differs.** Every branch test
+is back to its exact baseline numbers.
+
+**Conclusions:**
+
+1. The entire BHT regression was **index aliasing** — not direction logic, not training.
+2. **Counter training is correct.** False "taken" reads can only happen if other branches
+   trained entries to `WEAK_T`/`STRONG_T`, which requires the write path to work.
+3. **No BHT benefit is measurable on the directed instruction tests.** Each branch executes
+   roughly once, so after the cold mispredict there is no second execution to benefit from.
+   The only observable effect of the table on this suite is collision noise.
+
+**Action (done 2026-11-12):** tags + a `valid` bit added to the BHT and the index returned
+to 64 entries. Tags alone were **not** sufficient — see the follow-up below.
+
+**Outstanding:** loop-workload measurement. `test1`/`test2` show no change, suggesting they
+are straight-line or too short; the grader's bubble sort / sum array / factorial are loops
+and are the correct validation set.
+
+### Follow-up — root cause and fix (2026-11-12)
+
+Tags alone did not fix it. Runs on `rv32ui-p-beq` (baseline: 311 cycles / 27 flushes):
+
+| Change | cycles / flushes | BHT taken | Finding |
+|--------|------------------|-----------|---------|
+| tagged, no `valid` bit | 317 / 30 | 3 | all 3 predictions wrong; +2 cycles each |
+| + `valid` bit on read | 317 / 30 | 3 | not an uninitialised-tag problem — the reads were genuine tag matches |
+| + full 24-bit tag | 317 / 30 | 3 | not a partial-tag collision; the read-side tag was working |
+| + write-side tag compare, seed `WEAK_T`/`WEAK_NT` | 335 / 39 | 15 | wrong seed: inventing "taken" predictions |
+| + seed **cold** (`STRONG_NT` + this outcome only) | **311 / 27** | **0** | exact baseline |
+
+**Root cause.** The tag identified *who wrote the entry last*, not *whose outcomes the counter
+contains*. With 64 entries two branches share a slot: each write overwrote the tag with its own
+PC, but the counter kept evolving from whatever state was already there. The rightful owner
+would later match the tag, read a counter polluted by the other branch, and predict taken for
+a not-taken branch. A tagged BHT therefore needs **two** guards — the read side (never read
+another branch's entry) and the write side (never evolve another branch's counter).
+
+**Fixed contract for `bht.sv`:**
+
+- 64 entries, 8-bit partial tag (`pc[INDEX_BITS+2 +: 8]`), plus a `valid` bit
+- `taken_o = valid[rd_idx] && tag_match && (counter is WEAK_T or STRONG_T)`
+- on write, if `!valid[wr_idx]` or the tag differs, seed the entry **cold** from this outcome
+  (`update_taken_i ? WEAK_NT : STRONG_NT`) instead of advancing the existing state
+
+**Result (full suite, `TAG_BITS = 8`):** 53/53 PASS; all six branch tests back to predecoder
+baseline; `jalr` unchanged at 92 / 9, so the BTB win is preserved. Storage 64 × (2 + 8 + 1) =
+**704 flops**, versus 2,048 for the untagged 1024-entry diagnostic and 10,240 for the tagged
+1024-entry version — identical behaviour at one third the area of the cheapest diagnostic.
+
+**Still unproven:** the BHT makes **zero correct predictions** on the directed tests (0 on
+`beq`), so its benefit remains unmeasured; only the regression is gone. Cold seeding also means
+a repeating branch begins predicting from its third execution.
+
+### Decision
+
+- **Winner:** BTB — adopt. BHT — adopt as a *correct, neutral* component; benefit unproven.
+- **Reasoning:** the BTB is the only measured win (−6 cycles on `jalr`). The BHT is now
+  exactly neutral at 64 tagged entries and free of aliasing artefacts, but it makes no correct
+  prediction anywhere in the directed suite, so it cannot be credited with a gain. Validation
+  on a loop workload is still required before the BHT is claimed as an optimisation.
+- **Date merged:** —
+
+---
+
+## Experiment 4 — Instruction fusion (planned)
+
+**Status: gate measured and contract written (2026-11-22); no RTL, no variants.** The opportunity
+count demanded by the open question below has been taken across the fourteen benchmark kernels
+in `code/benchmarks/`; the numbers are in "Gate measurement" below. There are still no
+measurement rows because no variant exists yet.
+
+**Motivation.** Every CPI win so far came from *predicting* control flow (Experiments 1–3).
+The other axis is *eliminating* dynamic instructions: macro-op fusion recognises two
+architecturally separate instructions executed back-to-back and issues them as a single
+internal operation.
+
+### Hypothesis (step 1) — amended for the metric change
+
+Fusing adjacent instruction pairs reduces **both** the dynamic cycle count **and** the retired
+instruction count. `total_cycles` falls because each fused pair occupies one issue slot instead
+of two; `insn_exe` falls by exactly the number of fused pairs. **CPI may therefore rise while
+the core gets faster**, because `cpi = total_cycles / insn_exe` and the denominator is shrinking.
+
+The hypothesis predicts, in order: **cycles fall, retired instructions fall, IPC rises** — and
+explicitly states that **CPI is not a valid pass/fail criterion for this experiment.**
+
+**Hypothesis sentence (v1 rule, 2026-11-22):** fusing `addi` immediately followed by a
+conditional branch whose **rs1 is the register the `addi` writes** should remove **287 of the
+1123 dynamic instructions in the suite — 25.6%** — so `total_cycles` must fall by up to 287
+(21.4% of the 1339-cycle suite total), retired instructions must fall by exactly the number of
+pairs that fire, and IPC must rise. No baseline-passing test may change its pass/fail result.
+
+### Reporting rule for this experiment
+
+| Metric | Source | Role |
+|--------|--------|------|
+| Cycles | `Total Cycles` | the quantity that must fall |
+| Instructions retired | `cycles / CPI` | shows how often fusion fired |
+| **IPC** | `instructions / cycles` | the comparable efficiency metric; must rise |
+| CPI | `Final CPI` | reported for continuity only — **not** comparable across the fusion boundary |
+
+**CPI is not comparable across a fusion boundary.** It is a ratio whose denominator is the
+dynamic instruction count, and fusion changes that denominator by design. Comparing CPI before
+and after fusion compares two different questions. Any row that quotes only CPI is incomplete
+and must not be used to accept or reject a fusion variant.
+
+### Gate measurement (step 3 input) — measured 2026-11-22
+
+Counted with `code/benchmarks/fusion_analysis.py`, which recovers the dynamic stream from each
+kernel's source plus the measured retired-instruction count, so a pair inside a loop is counted
+once per iteration rather than once per source line. Suite totals: **1339 cycles, 1123 retired
+instructions** across fourteen kernels. Trip counts are pinned from the kernels; the
+`cycles/CPI` derivation is used only as a cross-check, because it over-reads by roughly the
+trailing `nop`s.
+
+| Quantity | Value |
+|---|---|
+| pairs found (`addi` followed by any conditional branch) | **310** |
+| pairs matching the cheap rule, branch rs1 == addi rd | **287** (93% of found) |
+| — of which backward branches (loop-back sub-case) | **277** (97% of matched) |
+| dynamic instructions in the suite | 1123 |
+| **fraction of dynamic instructions** | **287 / 1123 = 25.6%** |
+| suite cycles | 1339 |
+| **cycles bound** (1 cycle per fused pair) | **287 cycles = 21.4%** |
+
+The 25.6% is the bound the hypothesis quotes. It is an upper bound because it is a fraction of
+*instructions*, while only 1123 of the 1339 cycles are issue cycles — the rest are 8+ stalls,
+flush cycles and pipeline fill that removing an instruction cannot reclaim. The tighter figure
+is 21.4% of cycles; both are reported so the hypothesis and the eventual measurement are
+compared like with like.
+
+### Competing pairs, measured on the same suite
+
+| Pair | Dynamic pairs | % of cycles | Impl. cost | Verdict |
+|---|---|---|---|---|
+| `addi` + cond. branch, rs1 == rd | **287** | **21.4%** | 3 | **build (v1)** |
+| `add` + `lw` | 12 | 0.9% | 2 | no |
+| `add` + `sw` | 12 | 0.9% | 2 | no |
+| `lw` + consumer | 12 | 0.9% | 5 | no |
+| `lui`/`auipc` + `op` | 2 | 0.1% | 2 | no |
+| `slt`/`sltu` + branch | 0 | 0% | 2 | no measured occurrence |
+| `lw` + `sw` (copy) | 0 | 0% | 3 | no measured occurrence |
+
+Cost: 1 = trivial, 5 = datapath change. The winner beats the best memory-side fusion by **24x**,
+so the ranking survives the v1 restriction rather than depending on the unrestricted count. All
+memory-side patterns occur only in indexed array code (`array-idx`, `sum-array`); twelve of the
+fourteen kernels contain none at all.
+
+### What the restriction costs
+
+93% of the unrestricted pairs survive the `rs1 == rd` requirement, and 97% of what survives is a
+loop-back — so in practice v1 is a loop-back fusion: one instruction removed per loop iteration.
+The single edge case is `if-in-loop`, whose loop-back is preceded by a marker write
+(`addi x8,x0,1`) and tested with `blt x5,...`; rs1 != rd there, so that pair is not captured and
+the pairs counted for that kernel are its forward branch instead. This is the argument for the
+rs2 variant, not a defect in v1.
+
+### Interaction that must be declared before measuring
+
+Fusing taken loop-back branches **removes branches from the dynamic stream** — the exact signal
+the BHT/BTB of Experiment 2 is measured on. Enabling both features makes the predictor's
+apparent accuracy change for reasons that have nothing to do with the predictor. Each build in
+this experiment must therefore state which features are enabled, and comparisons must be made
+at a fixed feature mask.
+
+### fuse_detect — module spec
+
+Contract for Experiment 4 (step 2), v1 rule: `addi` immediately followed by a conditional
+branch whose rs1 is the register the `addi` writes. Module name `fuse_detect`, same ports on
+every variant branch so the unit TB runs unmodified on all of them.
+
+#### Ports
+
+| Name | Dir | Width | Meaning | Why it exists |
+|---|---|---|---|---|
+| `insn_a_i` | in | 32 | the word at `pc_i` | the candidate `addi` |
+| `insn_b_i` | in | 32 | the word at `pc_i + 4` | the candidate branch |
+| `pc_i` | in | 32 | address of `insn_a_i` | the pair's own PC, and the base for the branch target |
+| `is_insn_i` | in | 1 | slot validity, the same enable `pre_decode` receives | never fuse a slot that is being discarded |
+| `fused_o` | out | 1 | this pair fuses | the select for the entire mechanism |
+| `stride8_o` | out | 1 | the PC must advance 8, not 4 | "the next instruction" is no longer always `pc + 4` |
+| `rs2_o` | out | 5 | register index to compare `t` against (`insn_b_i[24:20]`) | decode reads `rs2` from the word in D, which is the *addi* — an I-type's `rs2` field is meaningless, so the right index must be supplied |
+| `br_funct3_o` | out | 3 | branch condition code | selects BEQ/BNE/BLT/BGE/BLTU/BGEU |
+| `br_target_o` | out | 32 | `(pc_i + 4) + sign_extend(B-imm)` | where a taken fused op redirects |
+| `br_imm_o` | out | 32 | `sign_extend(B-imm)` | **only** so a later variant can build the target in EX; unused in v1 |
+
+`br_imm_o` looks redundant and is not. The methodology requires **identical ports on every
+variant branch**. If v3 ("compute the target in EX instead of fetch") needed a different
+interface it would not be a variant — it would be a different module, and the shared unit TB
+could not run unmodified. The interface therefore carries what *any* variant might need, and
+synthesis trims what a given variant does not use. A reviewer seeing an unused port should read
+"v3 exists", not "dead code".
+
+#### Behaviour
+
+1. The fused operation writes `addi.rd <- addi.rs1 + sign_extend(addi.imm)`.
+   *The first instruction's architectural effect must survive fusion — it is not a scratch
+   value the hardware may discard.*
+2. It compares that result `t` against the register named by `insn_b_i[24:20]`.
+   *The branch's compared value is the addi's result, not the stale copy in the register file;
+   using the register file's copy would pass tests where the register did not change.*
+3. If the condition holds it redirects to `(pc_i + 4) + sign_extend(B-imm)`.
+   *The branch is the second instruction, so its address is `pc_i + 4`; using `pc_i` would
+   land one instruction early — a bug that only shows on the loop-back.*
+4. A fused pair occupies **one** pipeline slot and advances the PC by **8**.
+   *That single sentence is the entire performance argument; everything else exists to make it
+   safe.*
+
+#### Rejection rules
+
+| # | Condition | Fuse? | Why |
+|---|---|---|---|
+| 1 | `is_insn_i = 0` | no | the slot is being discarded |
+| 2 | `insn_a_i` opcode != `0010011` | no | not an I-type |
+| 3 | `insn_a_i` funct3 != `000` | no | `slti`/`xori`/... are not add |
+| 4 | `insn_a_i[11:7]` (rd) = `x0` | no | nothing to write; fusing is legal but pointless — rejecting keeps the rule one sentence (decision b) |
+| 5 | `insn_b_i` opcode != `1100011` | no | not a branch |
+| 6 | `insn_b_i` funct3 not in {000,001,100,101,110,111} | no | `010`/`011` are not branches (decision a) |
+| 7 | `insn_b_i[19:15]` != `insn_a_i[11:7]` | no | the branch must consume the addi's result — this is the 93% rule |
+| 8 | all of 1–7 pass | **yes** | |
+
+**Output rule when not fused.** When `fused_o = 0`, **every** output is zero -- `stride8_o`,
+`rs2_o`, `br_funct3_o`, `br_target_o` and `br_imm_o` included. This follows `pre_decode`'s
+discipline and lets the unit TB assert one rule ("no fuse implies all zeros") instead of
+enumerating each output's don't-care state.
+
+**Same-sequential-fetch guarantee.** This is not a condition on the two words, so it is not a
+table row: the pair must come from one sequential fetch. It is guaranteed by construction
+rather than by luck.
+
+- `insn_b_i` is read from the IMEM at an address *derived* from `pc_i` (`pc_i + 4`), not from a
+  fetch queue or a buffered word, so the two inputs are adjacent by address and cannot be
+  mismatched.
+- A redirect can only change `pc_i`. It cannot deliver a branch at `pc_i + 4` while some other
+  word is treated as the `addi`, because the detector has no state: each cycle it re-derives
+  the pair from the current `pc_i`.
+- `fused_o` affects only the *next* PC (`pc_i + 8`), never the current fetch, so a fused pair
+  cannot itself create a misaligned or double-fetched stream.
+- The one way a slot can be unreal is a flush or stall of the fetching instruction, and that is
+  exactly what `is_insn_i` encodes (rule 1). The detector does not interpret `flush`/`stall`;
+  the core must define `is_insn_i = 0` for any slot that will be discarded.
+
+#### Timing contract
+
+Purely combinational: the decision is available in the same cycle the two words are fetched;
+no clock, no state, no stall; a fused pair consumes one slot and sets the stride to 8. The cost
+is an opcode/funct compare, a register-index compare and one 32-bit adder in the fetch path —
+the same class of logic `pre_decode` already put there, and the reason moving `br_target_o`
+into EX is a later variant rather than the opening design.
+
+#### What the pipeline carries
+
+The branch word is **gone** after fetch — it never enters the pipeline. Everything the fused
+operation needs from it must be captured at fetch and carried alongside the `addi` word:
+
+| Field | Width | Why it must ride along |
+|---|---|---|
+| `fused` | 1 | tells decode/EX this slot is a fused add + branch |
+| `stride8` | 1 | the PC already advanced by 8; needed by any stage that reports or re-derives a PC |
+| `br_rs2` | 5 | the register the fused op compares `t` against |
+| `br_funct3` | 3 | which comparison to perform |
+| `br_target` | 32 | the redirect target, already computed |
+
+The `addi` supplies `rd`, `rs1` and `imm` for free, so they are not duplicated.
+
+Why: after the pair is consumed the second word no longer exists anywhere in the machine. If
+it is not captured at fetch it is unrecoverable, and the fused op would have to be re-fetched —
+which is the design this contract rejects.
+
+#### Decisions taken
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| a | Invalid branch funct3 (`010`/`011`) | **reject** | Fusing would be harmless (the comparator returns not-taken), but "fused implies a real branch" is a one-line invariant for the TB; rejecting keeps it |
+| b | `addi` with `rd = x0` | **reject** | Correct but pointless: no register is written, and `x0` reads as zero so the compare would not be against a result. One sentence in the rule beats a handful of occurrences |
+| c | Target in fetch (v1) or imm carried to EX (v3) | **precompute in fetch for v1** | Keeps the execute stage untouched for the first variant, and `br_imm_o` stays in the interface so v3 remains a variant rather than a rewrite |
+| d | Which variant computes which output | **both always driven** | `br_target_o` *and* `br_imm_o` are computed on every variant and the core selects one. If v1 left `br_imm_o` at zero and v3 drove it, the shared TB of §A step 4 would pass on v1 and fail on v3 — the TB must run unmodified on every branch, so the detector always produces both |
+
+#### Deliberately not in the contract
+
+- the internal style of the detector (one `case`, a PLA, whatever)
+- the index or size of any table
+- which variant uses `br_target_o` versus `br_imm_o`
+- anything about how the core wires it
+
+These are per-branch implementation choices. Anything in the contract is asserted by the shared
+unit TB, so putting them here would make v1 and v3 unable to both pass — which defeats the point
+of having variants at all.
+
+### Resolved: does fusion belong in this project?
+
+The opportunity is measured: one pair class fires 287 times across the suite (25.6% of dynamic
+instructions, 21.4% of cycles) while every memory-side candidate fires 12 times or fewer. That is
+a wide enough margin to justify a v1 build and narrow enough to justify building only one.
+
+Two risks remain and must be stated before measuring:
+
+1. **The graded binaries are fixed and unavailable.** These counts come from the project's own
+   kernels. The argument transfers only if the graded programs are loop-shaped, which every
+   available signal says they are, but it is an inference, not a measurement.
+2. **Overlap with the predictor.** With the BHT enabled the `sweep` family shows a constant 3
+   flush cycles regardless of trip count, so the predictor has already removed the loop-back
+   mispredicts. The 21.4% above is therefore **issue-slot saving only** and is additive to the
+   predictor; the redirect cycles must not be counted a second time in the fusion's column.
+
+Branch for the v1 build, per the convention in `AGENTS.md` §C: `feature/fusion-addi-branch-v1`.
+
+---
+
+## Future experiments
+
+Append a new numbered experiment section per structural decision, same table shape.
