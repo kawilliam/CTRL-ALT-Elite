@@ -379,8 +379,24 @@ module rv_core
     assign d_fwd_x_rs2 = `D_X[`REGWREN] && (dx_rd != 5'd0) && (dx_rd == rf_rs2) && !`D_X[`MEMREN];
     assign d_fwd_m_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == rf_rs2);
 
-    assign d_br_rs1 = d_fwd_x_rs1 ? e_res : d_fwd_m_rs1 ? xm_wdata : r_rs1data;
-    assign d_br_rs2 = d_fwd_x_rs2 ? e_res : d_fwd_m_rs2 ? xm_wdata : r_rs2data;
+    // What the instruction in X will actually write, which is NOT always the ALU
+    // result: lui/auipc write the immediate and jal writes pc+4, selected only at
+    // writeback. The M-stage value (xm_wdata) already applies that mux; the X
+    // stage needs its own copy, otherwise a branch comparing against a lui result
+    // reads zero.
+    wire [1:0]  d_x_wbsel = `D_X[`WBSEL];
+    wire [31:0] d_x_wdata = (d_x_wbsel == `WB_IMM) ? dx_imm
+                          : (d_x_wbsel == `WB_PC4) ? dx_pc + 32'd4
+                          : e_res;
+
+    // xm_wdata also has no memory-data case, which is why the existing M->X
+    // forwarding masks loads out with !X_M[MEMREN] and lets them reach W first.
+    // Resolving in D has no such option, so a load's data is taken from the
+    // memory output in M.
+    wire [31:0] d_m_wdata = `X_M[`MEMREN] ? m_data_o : xm_wdata;
+
+    assign d_br_rs1 = d_fwd_x_rs1 ? d_x_wdata : d_fwd_m_rs1 ? d_m_wdata : r_rs1data;
+    assign d_br_rs2 = d_fwd_x_rs2 ? d_x_wdata : d_fwd_m_rs2 ? d_m_wdata : r_rs2data;
 
     branch_control #(.DWIDTH(DWIDTH)) d_br_cmp (
       .opcode_i(d_opcode),
