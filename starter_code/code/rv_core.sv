@@ -36,6 +36,7 @@ module rv_core
     // fusion payload, fetch -> D -> X
     logic              fd_fused,   dx_fused,   e_fuse_taken;
     logic              fd_t_first, dx_t_first;
+    logic              dx_resolved;
     logic [4:0]        fd_br_rs2;
     logic [2:0]        fd_br_funct3, dx_br_funct3;
     logic [31:0]       fd_br_target, dx_br_target;
@@ -420,12 +421,21 @@ module rv_core
       endcase
     end
 
-    assign d_npc = d_brtaken ? (d_pc + d_imm) : (d_pc + 32'd4);
+    // A jalr also resolves here: its target is rs1 + imm, both available in D, and
+    // because flush_d only clears the F/D register the jalr itself continues into X
+    // and still writes its link register. Execute must not redirect it a second
+    // time, which is what dx_resolved suppresses.
+    wire d_is_jalr = (d_opcode == `I_TYPE_JALR);
 
-    // A branch in D that disagrees with the prediction registered with it.
-    // Suppressed while the hazard logic holds D, when the operand is not final.
-    assign mispredict_d = (d_opcode == `B_TYPE) && !hazard && (fd_pred_npc != d_npc);
+    assign d_npc = d_is_jalr         ? (d_br_rs1 + d_imm)
+                 : d_brtaken         ? (d_pc + d_imm)
+                 :                     (d_pc + 32'd4);
+
+    // Disagreement with the prediction registered with this instruction. Suppressed
+    // while the hazard logic holds D, when the operand is not final.
+    assign mispredict_d = (d_opcode == `B_TYPE || d_is_jalr) && !hazard && (fd_pred_npc != d_npc);
     assign flush_d      = mispredict_d;
+    wire   d_jalr_resolved = mispredict_d && d_is_jalr;
 
     // ---------- D/X ---------- //
     // D/X instantiation
@@ -467,6 +477,7 @@ module rv_core
       .br_funct3_i(fd_br_funct3),
       .br_target_i(fd_br_target),
       .t_first_i(fd_t_first),
+      .resolved_i(d_jalr_resolved),
       .pc_o(dx_pc),
       .imm_o(dx_imm),
       .rs1data_o(dx_rs1data),
@@ -482,7 +493,8 @@ module rv_core
       .fused_o(dx_fused),
       .br_funct3_o(dx_br_funct3),
       .br_target_o(dx_br_target),
-      .t_first_o(dx_t_first)
+      .t_first_o(dx_t_first),
+      .resolved_o(dx_resolved)
     );
 
     // ---------- EXECUTE STAGE --------- //
@@ -499,12 +511,17 @@ module rv_core
         (xm_wbsel == `WB_IMM) ? xm_imm :
         (xm_wbsel == `WB_PC4) ? xm_pc + 32'd4 :
         xm_alu_res;
-    assign mx_rs1 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs1) && !`X_M[`MEMREN];
+    // A load in M supplies its data straight from the memory output: xm_wdata has
+    // no memory-data case, and that omission is the only reason the load-use stall
+    // exists. The memory is combinational, so m_data_o is valid in M.
+    wire [31:0] m_fwd_data = `X_M[`MEMREN] ? m_data_o : xm_wdata;
+
+    assign mx_rs1 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs1);
     assign wx_rs1 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs1);
-    assign mx_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs2) && !`X_M[`MEMREN];
+    assign mx_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == dx_rs2);
     assign wx_rs2 = `M_W[`REGWREN] && (mw_rd != 5'd0) && (mw_rd == dx_rs2);
-    assign fwd_rs1 = mx_rs1 ? xm_wdata : wx_rs1 ? wb_data : dx_rs1data;
-    assign fwd_rs2 = mx_rs2 ? xm_wdata : wx_rs2 ? wb_data : dx_rs2data;
+    assign fwd_rs1 = mx_rs1 ? m_fwd_data : wx_rs1 ? wb_data : dx_rs1data;
+    assign fwd_rs2 = mx_rs2 ? m_fwd_data : wx_rs2 ? wb_data : dx_rs2data;
     assign alu_A = fwd_rs1;
     assign alu_B = e_rs2sel ? dx_imm : fwd_rs2;
 
@@ -534,7 +551,7 @@ module rv_core
     // Conditional branches are resolved in D (see the early-resolution block), so
     // only jal/jalr and fused pairs are still checked here. Leaving B_TYPE in
     // makes the X-stage redirect win over the D-stage one and cancels the gain.
-    assign e_ctrl = e_pcsel || dx_fused;
+    assign e_ctrl = (e_pcsel && !dx_resolved) || dx_fused;
 
     // Fused compare: the branch in the pair compares the addi's result
     logic fuse_breq, fuse_brlt, fused_brtaken;
@@ -703,10 +720,12 @@ module rv_core
     // D_X=ctrl_reg[0], X_M=ctrl_reg[1], M_W=ctrl_reg[2]
 
     // --------- Hazards ---------- //
-    // rf_rs2 is the branch's rs2 for a fused pair and d_rs2 otherwise, so one
-    // comparison covers both. With d_rs2 a load feeding the fused branch's
-    // compared register would not be detected -- d_rs2 holds the addi's imm.
-    assign hazard_load = `D_X[`MEMREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == rf_rs2 && d_opcode != `S_TYPE));
+    // A load-use pair now stalls only when the consumer needs the value in D, i.e.
+    // a branch or jalr being compared there. Every other consumer forwards from M
+    // via m_fwd_data and no longer waits a cycle.
+    wire d_needs_operand_in_d = (d_opcode == `B_TYPE) || (d_opcode == `I_TYPE_JALR);
+    assign hazard_load = `D_X[`MEMREN] && (dx_rd != 5'd0) && d_needs_operand_in_d
+                         && ((dx_rd == d_rs1) || (dx_rd == rf_rs2));
     // wire hazard_x = `D_X[`REGWREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2));
     // wire hazard_m = `X_M[`REGWREN] && (xm_rd != 5'd0) && ((xm_rd == d_rs1) || (xm_rd == d_rs2));
     // wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));
