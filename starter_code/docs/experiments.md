@@ -846,6 +846,49 @@ in the idea:
 improvement. A D-stage flush clears one register, and the counter appears to count X-stage
 flushes only. Cycles are the metric here, not squashes.
 
+### v1 graded results — measured
+
+Submitted as `submission-branch-pred-early-resolve.zip` (fusion inert). Compared against the
+prediction-only submission and the October baseline:
+
+| graded program | October | + prediction | + early resolution | vs prediction | vs October |
+|---|---|---|---|---|---|
+| Perf | 0.587 | 0.499 | **0.487** | -2.4\% | -17.0\% |
+| Fibonacci | 0.586 | 0.499 | **0.489** | -2.0\% | -16.6\% |
+| Bubble sort | 0.248 | 0.236 | **0.231** | -2.1\% | -6.9\% |
+| Factorial | 0.147 | 0.127 | **0.123** | -3.1\% | -16.3\% |
+| GCD | 0.084 | 0.069 | **0.068** | -1.4\% | -19.0\% |
+| Sum array | 0.057 | 0.054 | **0.052** | -3.7\% | -8.8\% |
+| Check vowel | 0.183 | 0.174 | 0.173 | -0.6\% | -5.5\% |
+| Swap | 0.016 | 0.016 | 0.015 | -6.3\% | -6.3\% |
+| Swap shift | 0.017 | 0.016 | 0.016 | 0.0\% | -5.9\% |
+| Simple if | 0.013 | 0.012 | 0.012 | 0.0\% | -7.7\% |
+| Simple add | 0.012 | 0.011 | 0.011 | 0.0\% | -8.3\% |
+| **total** | **1.950** | **1.713** | **1.677** | **-2.1\%** | **-14.0\%** |
+
+**Eight faster, three unchanged, none slower, all eleven CORRECT.** The three that do not move
+are the programs with almost no mispredicts to make cheaper, which is the mechanism's
+signature rather than a coincidence.
+
+The graded gain (2.1\%) is smaller than the local one (3.8\%) for the same two reasons
+fusion's number was diluted: the grader reports simulation wall time, which carries fixed
+cost, and the graded programs interleave array work between mispredicts where the kernels are
+pure loops.
+
+### Feature ledger, all measured on the same three-build discipline
+
+| change | mechanism | graded effect | adopted |
+|---|---|---|---|
+| pre-decoder + BHT/BTB | remove mispredicts | -12.2\% | yes |
+| macro-op fusion v1 | remove instructions | +0.4\% | no |
+| macro-op fusion v2 | remove instructions | +0.5\% | no |
+| early branch resolution | make mispredicts cheaper | -2.1\% | yes |
+| **cumulative** | | **-14.0\%** (1.950 -> 1.677 s) | |
+
+The rejection of fusion is what made this possible: the graded-suite evidence that fusion did
+not transfer is also the evidence that mispredicts, not repeated instructions, were where the
+remaining cycles lived.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
