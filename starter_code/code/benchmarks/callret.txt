@@ -1,0 +1,32 @@
+# callret -- three calls to a subroutine and three returns.
+# jal x1 / jalr x0,0(x1) is the canonical call/return pair: rd = x1 makes
+# is_call_o fire, rs1 = x1 makes is_ret_o fire.
+#
+# The subroutine sits BEFORE the entry code and is jumped over, so that the
+# instructions fetched after `ecall` (which retire during the testbench's drain
+# window) can only ever be nops.
+        jal  x0, main
+sub:    addi x8, x8, 5
+        jalr x0, 0(x1)
+main:   addi x2, x0, 0           # clear sp: top_tb treats a fetched `ret`
+                                 # as program end when sp == BASE+MEM_DEPTH,
+                                 # and the RF resets sp to exactly that value
+        addi x5, x0, 0           # count
+        addi x6, x0, 3           # iterations
+        addi x8, x0, 0           # accumulator
+top:    jal  x1, sub
+        addi x5, x5, 1
+        blt  x5, x6, top
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 15          # 3 x 5
+        bne  x8, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop

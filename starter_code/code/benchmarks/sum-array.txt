@@ -1,0 +1,30 @@
+# sum-array -- stores 4 values, sums them in a loop, checks the total.
+# Exercises loads, stores, a loop-back branch and a load-use dependency.
+        lui  x2, 1               # x2 = 0x1000, data base
+        addi x5, x0, 1
+        sw   x5, 0(x2)
+        addi x5, x0, 2
+        sw   x5, 4(x2)
+        addi x5, x0, 3
+        sw   x5, 8(x2)
+        addi x5, x0, 4
+        sw   x5, 12(x2)
+        addi x8, x0, 0           # sum
+        addi x9, x0, 0           # offset
+        addi x6, x0, 16          # end offset
+loop:   add  x10, x2, x9
+        lw   x11, 0(x10)
+        add  x8, x8, x11
+        addi x9, x9, 4
+        blt  x9, x6, loop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 10          # 1+2+3+4
+        bne  x8, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop

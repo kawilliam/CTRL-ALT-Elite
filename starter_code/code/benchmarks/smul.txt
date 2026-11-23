@@ -1,0 +1,25 @@
+# smul -- shift-and-add software multiply, 32 iterations.
+# The shape a libgcc multiply takes on an RV32I core with no M extension, and
+# therefore the shape factorial and GCD contain.
+        addi x8, x0, 6           # multiplicand
+        addi x9, x0, 7           # multiplier
+        addi x10, x0, 0          # product
+        addi x11, x0, 32         # bit count
+mloop:  andi x12, x9, 1
+        beq  x12, x0, nomul      # data-dependent branch inside the loop
+        add  x10, x10, x8
+nomul:  slli x8, x8, 1
+        srli x9, x9, 1
+        addi x11, x11, -1
+        bne  x11, x0, mloop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 42          # 6 * 7
+        bne  x10, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+        nop
+        nop

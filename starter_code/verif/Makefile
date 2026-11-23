@@ -216,3 +216,9 @@ help:
 	@echo "  make clean                                     (Deletes obj_dir, Sim, results, and wave outputs)"
 	@echo ""
 	
+# --- BENCHMARK ASSEMBLY ---
+# tools/rvasm.py assembles verif/tests/benchmarks/*.txt into .x images.
+bench-build:
+	@for f in $(TESTS_BASE_DIR)/benchmarks/*.txt; do \
+		python3 $(DESIGN_DIR)/benchmarks/rvasm.py "$$f" || exit 1; \
+	done
