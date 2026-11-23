@@ -159,10 +159,10 @@ module rv_core
     logic mispredict;                 // predicted next PC was wrong: redirect and flush
 
     // Valid instruction check
-    assign is_insn_en = ~flush;
+    assign is_insn_en = ~(flush | flush_d);
 
     // Fusion
-    localparam bit FUSE_ENABLE = 1'b1;   // compile-time mask: 0 restores the pre-fusion core exactly
+    localparam bit FUSE_ENABLE = 1'b0;   // inert for this experiment   // compile-time mask: 0 restores the pre-fusion core exactly
     wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
 
     // Branch prediction: jal is redirected by the pre-decoder (target is exact).
@@ -190,6 +190,7 @@ module rv_core
     // else if (guess_jump)                         next = guess_addr
     // else                                         next = pc + 4
     assign f_pc = (mispredict) ? e_npc
+                : (flush_d) ? d_npc
                 : (pre_en_redir) ? pre_target
                 : (fuse_bp_taken) ? fuse_target
                 : (bp_taken) ? bp_target
@@ -202,7 +203,7 @@ module rv_core
                       : pc + (fuse_on ? 32'd8 : 32'd4);
 
     // Checks if next anything other than pc + 4, feeds to fetch module
-    assign jump_branch = mispredict || pre_en_redir || fuse_bp_taken || bp_taken;
+    assign jump_branch = mispredict || flush_d || pre_en_redir || fuse_bp_taken || bp_taken;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
@@ -301,7 +302,7 @@ module rv_core
       .rst(reset),
       .insn_i(f_insn),
       .pc_i(pc),
-      .flush_i(flush),
+      .flush_i(flush | flush_d),
       .stall_i(stall),
       .pred_npc_i(f_pred_npc),
       .fused_i(fuse_on),
@@ -357,6 +358,58 @@ module rv_core
     );
 
     assign d_imm = c_immsel ? igen_imm : '0;
+
+    // ---------- EARLY BRANCH RESOLUTION (in D) ----------
+    // Conditional branches are resolved one stage earlier than jal/jalr so each
+    // mispredict squashes one instruction instead of two. Branches have no side
+    // effects, so the resolved branch is squashed and never enters X. jal is
+    // already resolved in fetch by the pre-decoder; jalr stays in X because a
+    // mispredicted jalr must survive to write its link register.
+    logic        d_fwd_x_rs1, d_fwd_m_rs1, d_fwd_x_rs2, d_fwd_m_rs2;
+    logic [31:0] d_br_rs1, d_br_rs2;
+    logic        d_breq, d_brlt, d_brtaken;
+    logic [31:0] d_npc;
+    logic        mispredict_d, flush_d;
+
+    // Forwarding into D for the two stages the register file cannot cover.
+    // A load in X is not forwarded: hazard_load holds D for a cycle instead,
+    // which is why mispredict_d is qualified by !hazard below.
+    assign d_fwd_x_rs1 = `D_X[`REGWREN] && (dx_rd != 5'd0) && (dx_rd == d_rs1) && !`D_X[`MEMREN];
+    assign d_fwd_m_rs1 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == d_rs1);
+    assign d_fwd_x_rs2 = `D_X[`REGWREN] && (dx_rd != 5'd0) && (dx_rd == rf_rs2) && !`D_X[`MEMREN];
+    assign d_fwd_m_rs2 = `X_M[`REGWREN] && (xm_rd != 5'd0) && (xm_rd == rf_rs2);
+
+    assign d_br_rs1 = d_fwd_x_rs1 ? e_res : d_fwd_m_rs1 ? xm_wdata : r_rs1data;
+    assign d_br_rs2 = d_fwd_x_rs2 ? e_res : d_fwd_m_rs2 ? xm_wdata : r_rs2data;
+
+    branch_control #(.DWIDTH(DWIDTH)) d_br_cmp (
+      .opcode_i(d_opcode),
+      .funct3_i(d_funct3),
+      .rs1_i(d_br_rs1),
+      .rs2_i(d_br_rs2),
+      .breq_o(d_breq),
+      .brlt_o(d_brlt)
+    );
+
+    always_comb begin
+      d_brtaken = 1'b0;
+      case (d_funct3)
+        `F3_BEQ:  d_brtaken =  d_breq;
+        `F3_BNE:  d_brtaken = !d_breq;
+        `F3_BLT:  d_brtaken =  d_brlt;
+        `F3_BGE:  d_brtaken = !d_brlt;
+        `F3_BLTU: d_brtaken =  d_brlt;
+        `F3_BGEU: d_brtaken = !d_brlt;
+        default:  d_brtaken = 1'b0;
+      endcase
+    end
+
+    assign d_npc = d_brtaken ? (d_pc + d_imm) : (d_pc + 32'd4);
+
+    // A branch in D that disagrees with the prediction registered with it.
+    // Suppressed while the hazard logic holds D, when the operand is not final.
+    assign mispredict_d = (d_opcode == `B_TYPE) && !hazard && (fd_pred_npc != d_npc);
+    assign flush_d      = mispredict_d;
 
     // ---------- D/X ---------- //
     // D/X instantiation
@@ -460,6 +513,8 @@ module rv_core
     // Branch prediction check: compare the real next PC with the one predicted in fetch
 
     // Is this an instruction whose guess could be wrong? (i.e. branch or jals)
+    // Conditional branches are resolved in D (see the early-resolution block), so
+    // only jal/jalr and fused pairs are still checked here.
     assign e_ctrl = (dx_opcode == `B_TYPE) || e_pcsel || dx_fused;
 
     // Fused compare: the branch in the pair compares the addi's result

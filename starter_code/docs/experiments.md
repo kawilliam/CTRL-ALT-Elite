@@ -715,6 +715,90 @@ Branch for the v1 build, per the convention in `AGENTS.md` §C: `feature/fusion-
 
 ---
 
+## Experiment 5 — early branch resolution (resolve conditional branches in D)
+
+**Status: contract written; v1 in progress.** Fusion was measured and dropped (Experiment 4).
+The remaining cycle budget on the project's kernels is 13.6\% overhead, of which mispredict
+cost is the largest single item:
+
+| category | cycles | share |
+|---|---|---|
+| useful instructions | 892 | 86.4\% |
+| mispredict flushes (2 per squash) | 86 | 8.3\% |
+| pipeline fill + alignment | 43 | 4.2\% |
+| load-use stalls | 12 | 1.2\% |
+
+### Hypothesis (step 1)
+
+A conditional branch resolved one stage earlier turns each mispredict from two squashed
+instructions into one. Expected: **cycles fall by about half the mispredict cost, ~4\% of the
+suite**, with **identical pass/fail** on all 67 tests. Squashed-instruction counts must fall;
+CPI will rise slightly because cycles fall while the instruction count does not.
+
+The metric is cycles and squashes. No test may change its pass/fail result.
+
+### Contract (step 2)
+
+Scope is **conditional branches only**. `jal` is already resolved in fetch by the pre-decoder
+(no penalty to recover) and `jalr` keeps its execute-stage resolution: a mispredicted `jalr`
+must survive to write its link register, which a D-stage squash would destroy.
+
+**Detection, in D:**
+
+    d_npc      = d_brtaken ? (d_pc + d_imm) : (d_pc + 4)
+    mispredict_d = (d_opcode == B_TYPE) && !hazard && (fd_pred_npc != d_npc)
+
+`fd_pred_npc` is the prediction registered with this instruction; `d_imm` is the B-immediate
+the immediate generator already produces for `B_TYPE`.
+
+**Operands.** The branch compares `d_rs1` and `rf_rs2`, which need values that may still be in
+flight. Forwarding into D covers the two stages the register file cannot:
+
+| producer | source | why |
+|---|---|---|
+| in X (not a load) | `e_res` | ALU result, combinational |
+| in M | `xm_wdata` | the value X will write |
+| in W | register-file read | the file already bypasses a same-cycle write |
+| load in X | none -- stall | the existing `hazard_load` holds D for one cycle until the value reaches M |
+
+`mispredict_d` is therefore qualified by `!hazard`: while D is held the operand is not final
+and the comparison is meaningless.
+
+**Flush routing -- the part that is easy to get wrong.** Today one `flush` clears both the F/D
+and D/X registers. That is correct when detection happens in X, because everything above the
+branch is younger. When detection happens in D, the instruction in X is *older* and must
+survive. So:
+
+| signal | clears | used by |
+|---|---|---|
+| `flush` (existing) | F/D **and** D/X | X-stage mispredicts (jal/jalr) |
+| `flush_d` (new) | F/D only | D-stage branch mispredicts |
+
+`e_ctrl` drops `B_TYPE`, so a correctly predicted branch does not re-trigger the X-stage check
+when it reaches execute; the fused term stays (inert at `FUSE_ENABLE = 0`).
+
+**Redirect priority:** `flush ? e_npc : flush_d ? d_npc : pre_en_redir ? pre_target : bp_taken ?
+bp_target : pc`.
+
+### Variants (step 3)
+
+| variant | difference | why it might win |
+|---|---|---|
+| v1 | forward from X and M as above | no added stalls; loop-back `addi`+`bne` stays one pair per iteration |
+| v2 | forward from M only, stall one cycle when the producer is in X | shorter combinational path into the comparator, at the cost of a stall on the most common loop pattern -- expected to lose |
+| v3 | v1 plus removing `dx_pred_npc` from the D/X register | reduces the payload; cosmetic, measure for area |
+
+### Verification plan (steps 4-5)
+
+1. Unit-level: the branch comparator is unchanged RTL wrapped in new plumbing, so no new unit
+   TB is needed; the full suite is the test.
+2. Regression: 67/67 pass/fail **identical** to the mask-0 baseline; any test that changes
+   result is a bug.
+3. Cycles: total across the 14 kernels must fall from the 1339 baseline; squashes must fall by
+   roughly half the redirect count.
+4. Waveform: one taken and one not-taken branch, plus one loop exit, showing `flush_d` instead
+   of `flush`.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
