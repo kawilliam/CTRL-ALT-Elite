@@ -889,6 +889,32 @@ The rejection of fusion is what made this possible: the graded-suite evidence th
 not transfer is also the evidence that mispredicts, not repeated instructions, were where the
 remaining cycles lived.
 
+### v2 results — load-use stall removed, jalr resolved in D
+
+Both follow-ups landed; 67/67 pass.
+
+| kernel | v1 | + load-use | + jalr | why |
+|---|---|---|---|---|
+| `array-idx` | 88 | **80** | 80 | 8 load-use stalls of 88 cycles (9\%) |
+| `sum-array` | 48 | **44** | 44 | 4 stalls of 48 cycles (8\%) |
+| `callret` | 34 | 34 | **33** | its one jalr mispredict |
+| everything else | -- | unchanged | unchanged | no load-use pairs or jalr misses |
+| **total** | **1288** | 1276 | **1275** | |
+
+Cumulative against the pre-change baseline: **1339 -> 1275, -64 cycles (-4.8\%)**, and the
+stall counter is now zero on every test in the suite.
+
+**Load-use** was the same omission that cost three bugs in v1: `xm_wdata` has no memory-data
+case, so `mx_rs1/mx_rs2` masked loads out and the pipeline waited a cycle. The memory is
+combinational, so `m_data_o` is valid in M and feeds X directly. The stall survives only where
+the value is needed *in D* -- a branch or jalr comparison -- so `hazard_load` is narrowed to
+those rather than firing for every consumer.
+
+**jalr in D** is worth only one cycle on this suite because `callret` is the only kernel with a
+jalr miss; its graded value depends on how call-heavy the graded programs are, which cannot be
+inspected. It carries a `resolved` bit to X so execute does not redirect a second time and
+cancel the gain -- exactly the failure mode that leaving `B_TYPE` in `e_ctrl` caused in v1.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
