@@ -627,6 +627,74 @@ in the detector:
    and redirect wrongly. `dx_reg` now latches `rf_rs2`, so one index serves decode, the
    hazard check, the register-file read and forwarding.
 
+### v2 contract — mirrored operand (`feature/macro-op-fusion-addi-branch-v2`)
+
+v1's measurement on the graded binaries was $+0.4\%$: correct on every program, but the
+pattern it recognises is not the one compiled loops mostly use. v2 is a strict superset of v1
+that also accepts the mirrored form.
+
+| form | example | v1 | v2 |
+|---|---|---|---|
+| `rs1` form | `addi x5,x5,-1` / `blt x5,x6,L` | fuses | fuses |
+| mirrored | `addi x5,x5,-1` / `bge x6,x5,L` | rejects | **fuses** |
+
+#### Why the union is the only extension possible
+
+The fused operation may reference only two register-file reads (the file has two ports).
+v1 needs `addi.rs1` and `branch.rs2`; v2 needs `addi.rs1` and `branch.rs1`. In both, the
+branch's other operand is the addi's *result*, not a third read. A general "fuse any adjacent
+`addi`+branch" variant would need the addi's source *and* both branch sources -- three reads --
+so it is not implementable without a third port. The `rd == branch operand` requirement is
+load-bearing, not conservative.
+
+#### Interface delta from v1
+
+| port | change |
+|---|---|
+| `rs2_o` (5) | **redefined**: "the register index to compare `t` against", i.e. `rs2_b` when the rs1 form matched, `rs1_b` when the mirrored form matched |
+| `t_first_o` (1) | **new**: 1 when `t` is the branch's rs1 operand (rs1 form), 0 when it is rs2 (mirrored) |
+
+Everything else -- `fused_o`, `stride8_o`, `br_funct3_o`, `br_target_o`, `br_imm_o`,
+`is_insn_i`, `pc_i` -- is unchanged. The unit TB's v1 rows all still pass unmodified, so the
+shared-contract property holds on the intersection.
+
+#### Detection
+
+    rs1_match = (insn_b[19:15] == insn_a[11:7])
+    rs2_match = (insn_b[24:20] == insn_a[11:7])
+    fused     = <all v1 word checks> && (rs1_match || rs2_match)
+    rs2_o     = rs1_match ? insn_b[24:20] : insn_b[19:15]
+    t_first_o = rs1_match
+
+All v1 rejection rules stand except rule 7, which becomes "neither operand is the addi's
+destination". When both match (e.g. `beq x5,x5,L`), the rs1 form wins by construction of the
+expression above, so the TB has exactly one correct answer for that row.
+
+#### Execute
+
+`branch_control` still compares two operands; the ordering is now a mux:
+
+    rs1_i = t_first ? e_res : fwd_rs2
+    rs2_i = t_first ? fwd_rs2 : e_res
+
+`br_funct3_o` is unchanged, so BEQ/BNE/BLT/BGE/BLTU/BGEU all keep their meaning: swapping
+both operands swaps the sense of BLT/BGE, which is exactly what the mirrored form needs.
+
+#### Payload
+
+`dx_reg` carries `t_first` from D to X alongside `fused`, `br_funct3`, `br_target`. `br_rs2`
+still stops at D, but its meaning is now the muxed "other operand" index rather than
+literally the branch's rs2 field.
+
+#### Expected result, stated before measuring
+
+v1 earned $+0.4\%$ on the graded suite. If compiled loop-backs are dominated by the mirrored
+form, v2 should land in the 4--6\% range on the loop-heavy graded programs (one cycle per
+iteration, against prediction's ~three). If it also lands near zero, the conclusion is that
+fusion is the wrong investment for this workload and the effort belongs in prediction. Either
+answer is a result; the measurement to run is the same three-way submission comparison with
+`FUSE_ENABLE` masked, plus the local suite A/B for cycle-level attribution.
+
 ### Resolved: does fusion belong in this project?
 
 The opportunity is measured: one pair class fires 287 times across the suite (25.6% of dynamic

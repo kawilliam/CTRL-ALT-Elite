@@ -41,6 +41,8 @@ module fuse_detect_tb;
   localparam logic [2:0] F3_BEQ  = 3'b000;
   localparam logic [2:0] F3_BNE  = 3'b001;
   localparam logic [2:0] F3_BLT  = 3'b100;
+  localparam logic [2:0] F3_BGE  = 3'b101;
+  localparam logic [2:0] F3_BLTU = 3'b110;
 
   // Inputs
   logic [DWIDTH-1:0] insn_a_i;
@@ -54,6 +56,7 @@ module fuse_detect_tb;
   logic [2:0]        br_funct3_o;
   logic [AWIDTH-1:0] br_target_o;
   logic [AWIDTH-1:0] br_imm_o;
+  logic              t_first_o;
 
   fuse_detect #(
       .AWIDTH(AWIDTH),
@@ -68,7 +71,8 @@ module fuse_detect_tb;
     .rs2_o(rs2_o),
     .br_funct3_o(br_funct3_o),
     .br_target_o(br_target_o),
-    .br_imm_o(br_imm_o)
+    .br_imm_o(br_imm_o),
+    .t_first_o(t_first_o)
   );
 
   // ---------------------------------------------------------------- encoders
@@ -141,6 +145,7 @@ module fuse_detect_tb;
     logic [2:0]  exp_funct3;
     logic [31:0] exp_target;
     logic [31:0] exp_imm;
+    logic        exp_t_first;  // defaults to 0 for the reject rows
   } test_t;
 
   test_t tests [$];
@@ -151,74 +156,99 @@ module fuse_detect_tb;
     tests.push_back('{
       "is_insn=0: perfect pair, all outputs zero",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd1, 5'd0, BR_NEG8), PC, 1'b0,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "word A is add (R-type): reject",
       make_rtype(5'd1, 5'd2, 5'd3), make_branch(F3_BNE, 5'd1, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "word A is slti (funct3=010): reject",
       make_itype(F3_SLTI, 5'd1, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd1, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "word A addi rd=x0: reject",
       make_addi(5'd0, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd0, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "word B is add, not a branch: reject",
       make_addi(5'd1, 5'd1, 12'hFFF), make_rtype(5'd2, 5'd1, 5'd3), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "word B branch funct3=010 (invalid): reject",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(3'b010, 5'd1, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     tests.push_back('{
       "branch rs1 != addi rd: reject",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd4, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     // ---- acceptances ------------------------------------------------------
     tests.push_back('{
       "accept addi x1,x1,-1 / bne x1,x0,-8",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd1, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + NEG8, NEG8
+      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + NEG8, NEG8, 1'b1
     });
 
     tests.push_back('{
       "accept same, blt x1,x5,-8",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BLT, 5'd1, 5'd5, BR_NEG8), PC, 1'b1,
-      1'b1, 1'b1, 5'd5, F3_BLT, PC + 32'd4 + NEG8, NEG8
+      1'b1, 1'b1, 5'd5, F3_BLT, PC + 32'd4 + NEG8, NEG8, 1'b1
     });
 
     tests.push_back('{
       "accept forward branch +8: target is pc+4+8",
       make_addi(5'd1, 5'd1, 12'd1), make_branch(F3_BNE, 5'd1, 5'd0, 13'd8), PC, 1'b1,
-      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + FWD8, FWD8
+      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + FWD8, FWD8, 1'b1
     });
 
     tests.push_back('{
       "accept at a second pc (0x0100_0100), backward",
       make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BNE, 5'd1, 5'd0, BR_NEG8), ALT_PC, 1'b1,
-      1'b1, 1'b1, 5'd0, F3_BNE, ALT_PC + 32'd4 + NEG8, NEG8
+      1'b1, 1'b1, 5'd0, F3_BNE, ALT_PC + 32'd4 + NEG8, NEG8, 1'b1
     });
 
     tests.push_back('{
       "accept addi x7,x3,+4 / bne x7,x0,-8 (rs1 != rd)",
       make_addi(5'd7, 5'd3, 12'd4), make_branch(F3_BNE, 5'd7, 5'd0, BR_NEG8), PC, 1'b1,
-      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + NEG8, NEG8
+      1'b1, 1'b1, 5'd0, F3_BNE, PC + 32'd4 + NEG8, NEG8, 1'b1
+    });
+
+    // ---- v2: the mirrored form -------------------------------------------
+    tests.push_back('{
+      "v2 accept mirrored: addi x1,x1,-1 / bge x5,x1,-8",
+      make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BGE, 5'd5, 5'd1, BR_NEG8), PC, 1'b1,
+      1'b1, 1'b1, 5'd5, F3_BGE, PC + 32'd4 + NEG8, NEG8, 1'b0
+    });
+
+    tests.push_back('{
+      "v2 accept mirrored, second pc",
+      make_addi(5'd7, 5'd7, 12'd4), make_branch(F3_BLTU, 5'd9, 5'd7, BR_NEG8), ALT_PC, 1'b1,
+      1'b1, 1'b1, 5'd9, F3_BLTU, ALT_PC + 32'd4 + NEG8, NEG8, 1'b0
+    });
+
+    tests.push_back('{
+      "v2 both operands match: rs1 form wins",
+      make_addi(5'd5, 5'd5, 12'hFFF), make_branch(F3_BEQ, 5'd5, 5'd5, BR_NEG8), PC, 1'b1,
+      1'b1, 1'b1, 5'd5, F3_BEQ, PC + 32'd4 + NEG8, NEG8, 1'b1
+    });
+
+    tests.push_back('{
+      "v2 reject neither operand matches",
+      make_addi(5'd1, 5'd1, 12'hFFF), make_branch(F3_BLT, 5'd2, 5'd3, BR_NEG8), PC, 1'b1,
+      1'b0, 1'b0, 5'd0, 3'd0, 32'd0, 32'd0, 1'b0
     });
 
     // Counted here, as the last statement of the block that fills the table.
@@ -266,7 +296,8 @@ module fuse_detect_tb;
        && rs2_o        === current.exp_rs2
        && br_funct3_o  === current.exp_funct3
        && br_target_o  === current.exp_target
-       && br_imm_o     === current.exp_imm)
+       && br_imm_o     === current.exp_imm
+       && t_first_o    === current.exp_t_first)
         passes++;
       else begin
         fails++;

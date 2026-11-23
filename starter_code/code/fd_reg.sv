@@ -35,6 +35,7 @@ module fd_reg #(
     input logic [4:0] br_rs2_i,
     input logic [2:0] br_funct3_i,
     input logic [AWIDTH-1:0] br_target_i,
+    input logic t_first_i,
 
 
   // outputs
@@ -44,7 +45,8 @@ module fd_reg #(
   output logic fused_o,
   output logic [4:0] br_rs2_o,
   output logic [2:0] br_funct3_o,
-  output logic [AWIDTH-1:0] br_target_o
+  output logic [AWIDTH-1:0] br_target_o,
+  output logic t_first_o
 );
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -55,6 +57,7 @@ module fd_reg #(
       br_rs2_o <= 5'd0;
       br_funct3_o <= 3'd0;
       br_target_o <= '0;
+      t_first_o <= 1'b0;
     end else if (flush_i) begin
       pc_o <= '0;
       insn_o <= `NOP;
@@ -63,6 +66,7 @@ module fd_reg #(
       br_rs2_o <= 5'd0;
       br_funct3_o <= 3'd0;
       br_target_o <= '0;
+      t_first_o <= 1'b0;
     end else if (!stall_i) begin
       pc_o <= pc_i;
       insn_o <= insn_i;
@@ -71,6 +75,7 @@ module fd_reg #(
       br_rs2_o <= br_rs2_i;
       br_funct3_o <= br_funct3_i;
       br_target_o <= br_target_i;
+      t_first_o <= t_first_i;
     end
   end
 

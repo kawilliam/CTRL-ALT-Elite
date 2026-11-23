@@ -76,6 +76,7 @@ module dx_reg #(
         input logic fused_i, // this slot is a fused addi+branch pair
         input logic [2:0] br_funct3_i, // condition of the fused pair's branch
         input logic [AWIDTH-1:0] br_target_i, // redirect target of the fused pair
+        input logic t_first_i, // 1 = the addi result compares as the branch's rs1
 
   // outputs
   output logic [AWIDTH-1:0] pc_o,
@@ -92,7 +93,8 @@ module dx_reg #(
   output logic [AWIDTH-1:0] pred_npc_o,
   output logic fused_o,
   output logic [2:0] br_funct3_o,
-  output logic [AWIDTH-1:0] br_target_o
+  output logic [AWIDTH-1:0] br_target_o,
+  output logic t_first_o
 );
   always_ff @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -111,6 +113,7 @@ module dx_reg #(
       fused_o <= 1'b0;
       br_funct3_o <= 3'd0;
       br_target_o <= '0;
+      t_first_o <= 1'b0;
     end else if (flush_i || stall_i) begin
       pc_o <= '0;
       imm_o <= '0;
@@ -127,6 +130,7 @@ module dx_reg #(
       fused_o <= 1'b0;
       br_funct3_o <= 3'd0;
       br_target_o <= '0;
+      t_first_o <= 1'b0;
     end else begin
       pc_o <= pc_i;
       imm_o <= imm_i;
@@ -142,6 +146,7 @@ module dx_reg #(
       fused_o <= fused_i;
       br_funct3_o <= br_funct3_i;
       br_target_o <= br_target_i;
+      t_first_o <= t_first_i;
       ctrl_reg_o <= {alusel_i, wbsel_i, memwren_i, memren_i, rs2sel_i, rs1sel_i, regwren_i, immsel_i, pcsel_i};
     end
   end

@@ -30,10 +30,12 @@ module rv_core
     logic fuse_found;
     logic fuse_stride8;
     logic [4:0] fuse_rs2;
+    logic       fuse_t_first;
     logic [AWIDTH-1:0] bht_pc;
     logic              fuse_bp_taken;
     // fusion payload, fetch -> D -> X
     logic              fd_fused,   dx_fused,   e_fuse_taken;
+    logic              fd_t_first, dx_t_first;
     logic [4:0]        fd_br_rs2;
     logic [2:0]        fd_br_funct3, dx_br_funct3;
     logic [31:0]       fd_br_target, dx_br_target;
@@ -283,6 +285,7 @@ module rv_core
       .fused_o (fuse_found),
       .stride8_o (fuse_stride8),
       .rs2_o (fuse_rs2),
+      .t_first_o (fuse_t_first),
       .br_funct3_o (fuse_funct3),
       .br_target_o (fuse_target),
       .br_imm_o (fuse_imm)
@@ -305,13 +308,15 @@ module rv_core
       .br_rs2_i(fuse_rs2),
       .br_funct3_i(fuse_funct3),
       .br_target_i(fuse_target),
+      .t_first_i(fuse_t_first),
       .pc_o(fd_pc),
       .insn_o(fd_insn),
       .pred_npc_o(fd_pred_npc),
       .fused_o(fd_fused),
       .br_rs2_o(fd_br_rs2),
       .br_funct3_o(fd_br_funct3),
-      .br_target_o(fd_br_target)
+      .br_target_o(fd_br_target),
+      .t_first_o(fd_t_first)
     );
 
     // ---------- DECODE STAGE ---------- //
@@ -392,6 +397,7 @@ module rv_core
       .fused_i(fd_fused),
       .br_funct3_i(fd_br_funct3),
       .br_target_i(fd_br_target),
+      .t_first_i(fd_t_first),
       .pc_o(dx_pc),
       .imm_o(dx_imm),
       .rs1data_o(dx_rs1data),
@@ -406,7 +412,8 @@ module rv_core
       .pred_npc_o(dx_pred_npc),
       .fused_o(dx_fused),
       .br_funct3_o(dx_br_funct3),
-      .br_target_o(dx_br_target)
+      .br_target_o(dx_br_target),
+      .t_first_o(dx_t_first)
     );
 
     // ---------- EXECUTE STAGE --------- //
@@ -461,8 +468,11 @@ module rv_core
     branch_control #(.DWIDTH(DWIDTH)) fuse_cmp (
       .opcode_i(`B_TYPE),
       .funct3_i(dx_br_funct3),
-      .rs1_i(e_res),
-      .rs2_i(fwd_rs2),
+      // v2: the addi result may sit on either side of the comparison. Swapping
+      // both operands preserves BEQ/BNE and inverts BLT/BGE, which is exactly
+      // what the mirrored form needs.
+      .rs1_i(dx_t_first ? e_res    : fwd_rs2),
+      .rs2_i(dx_t_first ? fwd_rs2  : e_res),
       .breq_o(fuse_breq),
       .brlt_o(fuse_brlt)
     );
