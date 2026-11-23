@@ -30,6 +30,8 @@ module rv_core
     logic fuse_found;
     logic fuse_stride8;
     logic [4:0] fuse_rs2;
+    logic [AWIDTH-1:0] bht_pc;
+    logic              fuse_bp_taken;
     // fusion payload, fetch -> D -> X
     logic              fd_fused,   dx_fused,   e_fuse_taken;
     logic [4:0]        fd_br_rs2;
@@ -158,7 +160,7 @@ module rv_core
     assign is_insn_en = ~flush;
 
     // Fusion
-    localparam bit FUSE_ENABLE = 1'b0;   // plumbing first: flip only after the suite is proven byte-identical
+    localparam bit FUSE_ENABLE = 1'b1;   // TEMP measurement; set back to 0
     wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
 
     // Branch prediction: jal is redirected by the pre-decoder (target is exact).
@@ -174,19 +176,31 @@ module rv_core
     assign bp_taken = (pre_cfi == CFI_BRANCH && bht_taken) || (pre_cfi == CFI_JALR && btb_hit);
     assign bp_target = (pre_cfi == CFI_BRANCH) ? pre_target : btb_target;
 
+    // Fusion: the branch of a pair is at pc+4 and is never fetched as its own
+    // instruction, so it can only be predicted by looking it up explicitly. One
+    // mux on the index is enough -- the pair's own PC is not a branch and needs
+    // no direction, so the two addresses never both matter in one cycle.
+    assign bht_pc = fuse_on ? pc + 32'd4 : pc;
+    assign fuse_bp_taken = fuse_on & bht_taken;
+
     // Where do we actually fetch next?
     // if (execute says an older guess was wrong)   next = the correct address from execute
     // else if (guess_jump)                         next = guess_addr
     // else                                         next = pc + 4
-    assign f_pc = (mispredict) ? e_npc : (pre_en_redir) ? pre_target : (bp_taken) ? bp_target : pc;
+    assign f_pc = (mispredict) ? e_npc
+                : (pre_en_redir) ? pre_target
+                : (fuse_bp_taken) ? fuse_target
+                : (bp_taken) ? bp_target
+                : pc;
 
     // Save our guess for this instruction, to be checked in execute
-    assign f_pred_npc = (pre_en_redir) ? pre_target 
-                      : (bp_taken) ? bp_target 
+    assign f_pred_npc = (pre_en_redir) ? pre_target
+                      : (fuse_bp_taken) ? fuse_target
+                      : (bp_taken) ? bp_target
                       : pc + (fuse_on ? 32'd8 : 32'd4);
 
     // Checks if next anything other than pc + 4, feeds to fetch module
-    assign jump_branch = mispredict || pre_en_redir || bp_taken;
+    assign jump_branch = mispredict || pre_en_redir || fuse_bp_taken || bp_taken;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
@@ -238,10 +252,10 @@ module rv_core
     ) bht1 (
       .clk(clk),
       .rst(reset),
-      .pc_i(pc),
-      .update_i(dx_opcode == `B_TYPE),
-      .update_pc_i(dx_pc),
-      .update_taken_i(e_brtaken),
+      .pc_i(bht_pc),
+      .update_i((dx_opcode == `B_TYPE) || dx_fused),
+      .update_pc_i(dx_fused ? dx_pc + 32'd4 : dx_pc),
+      .update_taken_i(dx_fused ? e_fuse_taken : e_brtaken),
       .taken_o(bht_taken)
     );
 
@@ -358,7 +372,11 @@ module rv_core
       .funct7_i(d_funct7),
       .rd_i(d_rd),
       .rs1_i(d_rs1),
-      .rs2_i(d_rs2),
+      // rf_rs2, not d_rs2: for a fused pair d_rs2 holds the addi's immediate
+      // field, so dx_rs2 must carry the branch's rs2 or the X-stage forwarding
+      // selectors (xm_rd/mw_rd == dx_rs2) never match and the compared operand
+      // falls back to a stale register value.
+      .rs2_i(rf_rs2),
       .flush_i(flush),
       .stall_i(stall),
       .pcsel_i(c_pcsel),
@@ -601,7 +619,10 @@ module rv_core
     // D_X=ctrl_reg[0], X_M=ctrl_reg[1], M_W=ctrl_reg[2]
 
     // --------- Hazards ---------- //
-    assign hazard_load = `D_X[`MEMREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2 && d_opcode != `S_TYPE));
+    // rf_rs2 is the branch's rs2 for a fused pair and d_rs2 otherwise, so one
+    // comparison covers both. With d_rs2 a load feeding the fused branch's
+    // compared register would not be detected -- d_rs2 holds the addi's imm.
+    assign hazard_load = `D_X[`MEMREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == rf_rs2 && d_opcode != `S_TYPE));
     // wire hazard_x = `D_X[`REGWREN] && (dx_rd != 5'd0) && ((dx_rd == d_rs1) || (dx_rd == d_rs2));
     // wire hazard_m = `X_M[`REGWREN] && (xm_rd != 5'd0) && ((xm_rd == d_rs1) || (xm_rd == d_rs2));
     // wire hazard_w = `M_W[`REGWREN] && (mw_rd != 5'd0) && ((mw_rd == d_rs1) || (mw_rd == d_rs2));

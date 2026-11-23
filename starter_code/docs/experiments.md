@@ -352,7 +352,7 @@ a repeating branch begins predicting from its third execution.
 
 ## Experiment 4 — Instruction fusion (planned)
 
-**Status: gate measured and contract written (2026-11-22); no RTL, no variants.** The opportunity
+**Status: v1 built and measured (2026-11-23); 67/67 with the feature on and off.** The opportunity
 count demanded by the open question below has been taken across the fourteen benchmark kernels
 in `code/benchmarks/`; the numbers are in "Gate measurement" below. There are still no
 measurement rows because no variant exists yet.
@@ -574,6 +574,52 @@ which is the design this contract rejects.
 These are per-branch implementation choices. Anything in the contract is asserted by the shared
 unit TB, so putting them here would make v1 and v3 unable to both pass — which defeats the point
 of having variants at all.
+
+### v1 results — measured 2026-11-23
+
+`fuse_detect` integrated with `FUSE_ENABLE` masking the feature. Unit TB 12/12; full suite
+67/67 with the feature on **and** off. Comparison is the same build with the mask flipped:
+
+| Test | off | on | saved | flush cycles |
+|---|---|---|---|---|
+| `smoke` | 6 | 6 | 0 | 0 / 0 |
+| `sweep4` | 29 | 25 | -4 | 3 / 3 |
+| `sweep10` | 47 | 37 | -10 | 3 / 3 |
+| `sweep25` | 92 | 67 | -25 | 3 / 3 |
+| `sweep50` | 167 | 117 | -50 | 3 / 3 |
+| `sweep100` | 317 | 217 | -100 | 3 / 3 |
+| `nested` | 112 | 87 | -25 | 10 / 10 |
+| `if-in-loop` | 56 | 46 | -10 | 6 / 6 |
+| `sum-array` | 51 | 47 | -4 | 3 / 3 |
+| `array-idx` | 91 | 83 | -8 | 3 / 3 |
+| `fib` | 69 | 59 | -10 | 3 / 3 |
+| `smul` | 218 | 186 | -32 | 5 / 5 |
+| `callret` | 37 | 34 | -3 | 4 / 4 |
+| **total** | **1339** | **1048** | **-291 (-21.7%)** | unchanged |
+
+Three things this confirms and one it corrects:
+
+- **The gate predicted 21.4%** (287 pairs / 1339 cycles); measured **21.7%**. The pairs
+  counted statically and dynamically agree with the silicon behaviour to within a cycle.
+- **Exactly one cycle per fused pair**, per kernel: `sweep100` saves 100, `sweep50` saves 50,
+  `sweep10` saves 10. No test over- or under-delivers.
+- **Flush cycles are identical in every test**, which is the check that matters: fusion
+  removed instructions without costing a single extra mispredict. That is what the
+  prediction wiring in step 3 exists to guarantee.
+- **CPI rises, as the metric change predicted** (`sweep100` 1.21 -> 1.57): the denominator
+  shrank by 100 instructions. Cycles and IPC are the comparable figures across this
+  boundary, never CPI.
+
+Two defects were found and fixed during integration, both in the rs2 index path rather than
+in the detector:
+
+1. The load-use hazard compared `dx_rd` against `d_rs2` (the addi's immediate field for a
+   fused pair), so a load feeding the branch's compared register was not detected.
+2. The X-stage forwarding selectors compare `xm_rd`/`mw_rd` against `dx_rs2`; with `dx_rs2`
+   carrying the addi's field, the fused branch's operand was never forwarded and fell back
+   to a stale register value -- which made `rv32ui-p-jal` compute the wrong branch outcome
+   and redirect wrongly. `dx_reg` now latches `rf_rs2`, so one index serves decode, the
+   hazard check, the register-file read and forwarding.
 
 ### Resolved: does fusion belong in this project?
 
