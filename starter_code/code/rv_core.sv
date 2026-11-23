@@ -531,7 +531,10 @@ module rv_core
     // Is this an instruction whose guess could be wrong? (i.e. branch or jals)
     // Conditional branches are resolved in D (see the early-resolution block), so
     // only jal/jalr and fused pairs are still checked here.
-    assign e_ctrl = (dx_opcode == `B_TYPE) || e_pcsel || dx_fused;
+    // Conditional branches are resolved in D (see the early-resolution block), so
+    // only jal/jalr and fused pairs are still checked here. Leaving B_TYPE in
+    // makes the X-stage redirect win over the D-stage one and cancels the gain.
+    assign e_ctrl = e_pcsel || dx_fused;
 
     // Fused compare: the branch in the pair compares the addi's result
     logic fuse_breq, fuse_brlt, fused_brtaken;

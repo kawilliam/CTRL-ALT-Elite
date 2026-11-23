@@ -799,6 +799,53 @@ bp_target : pc`.
 4. Waveform: one taken and one not-taken branch, plus one loop exit, showing `flush_d` instead
    of `flush`.
 
+### v1 results — measured
+
+67/67 pass, `FUSE_ENABLE = 0` (fusion inert), against the pre-change baseline:
+
+| kernel | baseline | v1 | saved | squashes |
+|---|---|---|---|---|
+| `smoke` | 6 | 6 | 0 | 0 |
+| `sweep4` | 29 | 26 | -3 | 0 |
+| `sweep10` | 47 | 44 | -3 | 0 |
+| `loop10` | 47 | 44 | -3 | 0 |
+| `sweep25` | 92 | 89 | -3 | 0 |
+| `sweep50` | 167 | 164 | -3 | 0 |
+| `sweep100` | 317 | 314 | -3 | 0 |
+| `nested` | 112 | 102 | -10 | 0 |
+| `if-in-loop` | 56 | 50 | -6 | 0 |
+| `sum-array` | 51 | 48 | -3 | 0 |
+| `array-idx` | 91 | 88 | -3 | 0 |
+| `fib` | 69 | 66 | -3 | 0 |
+| `smul` | 218 | 213 | -5 | 0 |
+| `callret` | 37 | 34 | -3 | 1 |
+| **total** | **1339** | **1288** | **-51 (-3.8%)** | 1 |
+
+The hypothesis was 4% of the suite, from halving a 8.3% mispredict share. Measured 3.8%, and
+the saving is **exactly one cycle per mispredict** on every kernel -- `nested` saves 10, which
+is its ten mispredicts; `smul` saves 5; the loop kernels save 3, which is entry + exit + the
+cold first iteration.
+
+Three bugs were found and fixed during bring-up, all in the D-stage operand path rather than
+in the idea:
+
+1. **A load in M.** `xm_wdata` has no memory-data case (it is IMM / PC+4 / ALU only), which is
+   why the existing M->X forwarding masks loads out with `!X_M[MEMREN]` and lets them reach W
+   first. D-resolution has no such option, so a load's data is now taken from `m_data_o`. This
+   accounted for seven of eight failing tests (all the sub-word load/store ones).
+2. **`lui`/`auipc`/`jal` in X.** `e_res` is the ALU result, but those write the immediate or
+   pc+4, selected only at writeback. A branch comparing against a `lui` result read zero,
+   which is what broke `rv32ui-p-bgeu`. The X-stage value now applies the same WBSEL mux that
+   `xm_wdata` applies for M.
+3. **The X-stage check must be removed.** Leaving `B_TYPE` in `e_ctrl` means the X-stage
+   redirect wins over the D-stage one for the same branch, cancelling the entire gain -- the
+   design is correct but measures identical cycles. This was introduced during bisection and
+   is worth recording: the two mechanisms must not both be live.
+
+**Metric caveat:** the squashed-instruction counter drops from 52 to 1, which overstates the
+improvement. A D-stage flush clears one register, and the counter appears to count X-stage
+flushes only. Cycles are the metric here, not squashes.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
