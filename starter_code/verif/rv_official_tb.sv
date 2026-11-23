@@ -15,6 +15,19 @@ module rv_official_tb;
 
    logic clk = 0;
    logic rst = 1;
+
+   // Fusion observability: "found" is the recogniser firing, "used" is the
+   // compile-time mask letting it act. Gated on pc_en so a stalled fetch does
+   // not count the same pair twice.
+   int fuse_found_cnt = 0;
+   int fuse_used_cnt  = 0;
+   always_ff @(posedge clk) begin
+      if (!rst) begin
+         if (hut.pc_en && hut.fuse_found) fuse_found_cnt++;
+         if (hut.pc_en && hut.fuse_on)    fuse_used_cnt++;
+      end
+   end
+
    always #1 clk = ~clk;
 
    localparam int DWIDTH = 32;
@@ -148,6 +161,7 @@ initial begin
       $display("       PIPELINE PERFORMANCE METRICS       ");
       $display("===========================================");
       $display("Total Cycles : %0d", total_cycles);
+      $display("Fused Pairs  : %0d found, %0d used", fuse_found_cnt, fuse_used_cnt);
       $display("Stalls       : %0d", stalls);
       $display("Squashes     : %0d", squashes);
       $display("Final CPI    : %0.2f", cpi);
