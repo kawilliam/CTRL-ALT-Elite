@@ -607,8 +607,14 @@ Three things this confirms and one it corrects:
   removed instructions without costing a single extra mispredict. That is what the
   prediction wiring in step 3 exists to guarantee.
 - **CPI rises, as the metric change predicted** (`sweep100` 1.21 -> 1.57): the denominator
-  shrank by 100 instructions. Cycles and IPC are the comparable figures across this
-  boundary, never CPI.
+  shrank by 100 instructions.
+- **IPC falls too, which the hypothesis got wrong.** Suite-wide 1169 -> 876 instructions and
+  1339 -> 1048 cycles: IPC moves from 0.873 to 0.836. The hypothesis of step 1 predicted that
+  IPC must rise; it cannot, because fusion shortens the instruction stream while leaving the
+  machine's fixed cost (fill, stalls, flush cycles) untouched -- the same ~170 cycles now
+  amortise over 876 instructions instead of 1169. **The comparable figure for this experiment
+  is cycles for fixed work**, and neither CPI nor IPC should be used to accept or reject a
+  fusion variant.
 
 Two defects were found and fixed during integration, both in the rs2 index path rather than
 in the detector:
