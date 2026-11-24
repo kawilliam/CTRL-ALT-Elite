@@ -571,6 +571,8 @@ move by 15.2\% and 13.5\%.
 \section{What the five experiments add up to}
 
 \begin{center}
+\small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{llrr}
 \toprule
 change & mechanism & graded effect & local effect \\
@@ -582,7 +584,7 @@ early resolution      & make mispredicts cheaper & $-2.1\%$ & $-3.8\%$ \\
 load-use and \texttt{jalr} & remove stall cycles & $-6.2\%$ & $-1.0\%$ \\
 dead-logic removal & smaller model, same cycles & $\mathbf{-1.7\%}$ & $0\%$ \\
 \midrule
-cumulative & & $\mathbf{-20.7\%}$ (1.950 $\rightarrow$ 1.546\,s) & \\
+cumulative & & $\mathbf{-20.7\%}$ & \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -652,6 +654,195 @@ The practical consequence is uncomfortable but useful: **a cycle saved and a gat
 cancel on this metric**, so the cheapest way to score well is to make the design smaller at
 equal cycles, not only faster. That is worth stating plainly in the report of a project whose
 stated goal is a faster core, because the two objectives are not identical.
+
+\section{Why the fractional part of CPI is a ceiling}
+
+Everything in the previous section is bounded by one identity. With a single-issue pipeline
+that retires at most one instruction per cycle,
+
+$$\mathrm{CPI} = \frac{\text{cycles}}{\text{instructions}} = 1 + \frac{\text{overhead cycles}}{\text{instructions}} \;\ge\; 1$$
+
+so the whole of the remaining headroom is the \emph{fractional part} of CPI, and every
+optimisation in this report has been an attack on that fraction. CPI below 1 is not reachable
+by making the fraction smaller; it needs more than one retirement per cycle, which is a
+different machine.
+
+\subsection{The fraction shrinks as programs get longer}
+
+The overhead is not proportional to program length: it is mostly a fixed cost per run plus a
+cost per loop, and the per-instruction share of a fixed cost falls as the program grows.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+kernel & instructions & cycles & CPI & overhead cycles \\
+\midrule
+\texttt{smoke}         &   2 &   6 & 3.00 &  4 \\
+\texttt{sweep4}        &  19 &  26 & 1.37 &  7 \\
+\texttt{callret}       &  25 &  33 & 1.32 &  8 \\
+\texttt{loop10}        &  37 &  44 & 1.19 &  7 \\
+\texttt{if-in-loop}    &  40 &  50 & 1.25 & 10 \\
+\texttt{fib}           &  59 &  66 & 1.12 &  7 \\
+\texttt{array-idx}     &  73 &  80 & 1.10 &  7 \\
+\texttt{nested}        &  88 & 102 & 1.16 & 14 \\
+\texttt{array-swap-loop} & 104 & 129 & 1.24 & 25 \\
+\texttt{sweep50}       & 158 & 164 & 1.04 &  6 \\
+\texttt{calls-in-loop} & 159 & 196 & 1.23 & 37 \\
+\texttt{smul}          & 205 & 213 & 1.04 &  8 \\
+\texttt{sweep100}      & 308 & 314 & 1.02 &  6 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Read the last column, not the CPI. \texttt{sweep100} executes 308 instructions and wastes six
+cycles in total: four of pipeline fill and two redirects. \texttt{sweep4} executes 19
+instructions and wastes seven, for a CPI of 1.37. The waste is almost the same in both; only the
+denominator changed.
+
+That is the ceiling. Even a machine with no stalls and no mispredicts left to remove could take
+\texttt{sweep100} from 314 cycles to 308, which is 2\%. \texttt{sweep4} would improve 27\%, but
+\texttt{sweep4} contributes 26 cycles out of 1600 to the suite's total, so it barely matters.
+
+\subsection{What the six cycles actually are}
+
+For \texttt{sweep100}, six cycles of overhead across 308 instructions:
+
+\begin{itemize}
+\item \textbf{four of pipeline fill}. The first instruction takes four cycles to reach writeback
+  and those cycles are counted. A five-stage pipeline cannot do better without being a
+  four-stage pipeline.
+\item \textbf{two of redirect}, one for the cold first iteration and one for the loop exit. The
+  entry miss is unavoidable: nothing can predict a branch before it has been seen. The exit
+  miss is what a loop-exit predictor would remove, worth one cycle per loop.
+\end{itemize}
+
+The larger fractions in the table are the kernels with structure, not the kernels that are long:
+\texttt{calls-in-loop} wastes 37 cycles because twenty returns through two call sites alternate
+between targets, and \texttt{array-swap-loop} wastes 25 because a branch waits for a load. Both
+are the structural costs covered earlier, and both are per-iteration, not fixed, which is why
+they survive into long programs where the fixed costs have vanished.
+
+\subsection{Amdahl applied to the fraction}
+
+The total across the sixteen kernels is 1600 cycles for 1433 instructions, a CPI of 1.12, so
+the fraction is 10.4\%. An optimisation that removed \emph{every} wasted cycle would therefore
+give at most 10.4\%, and most of the fraction is not removable: fill is structural, and the
+entry mispredict cannot exist without a predictor that has seen the branch before.
+
+So the realistic statement is: the suite-level ceiling is around 10\%, the addressable part is
+perhaps half of it, and it shrinks as programs get longer, which the graded programs are.
+
+\subsection{There is a second ceiling, in the measurement}
+
+The autograder reports milliseconds on programs of 11\,ms to 500\,ms, so its resolution is 8\%
+on the smallest and 0.2\% on the largest. Repeating the same build produces differences of
+1--3\,ms on the small programs, which is up to 3\%. The consequence is blunt: \textbf{graded
+differences below about 1\% cannot be measured at all}, which is exactly what the last two
+experiments returned --- the memory X-checks moved the total by 4\,ms, with two programs faster
+and two slower.
+
+Every real result in this report is comfortably above that floor: prediction 12.2\%, load-use
+6.2\%, early resolution 2.1\%, dead logic 1.7\%. Anything smaller would have been
+indistinguishable from noise, and treating it as a result would have been a mistake.
+
+\subsection{What would break the ceiling}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+change & effect on the identity & cost \\
+\midrule
+shorter pipeline & fill falls from 4 to 2--3 & a redesign of forwarding and hazards \\
+dual issue & $\mathrm{CPI}$ can fall below 1 & months; doubles most of the datapath \\
+loop-exit predictor & removes 1 cycle per loop & days; helps only many-short-loop code \\
+return-address stack & removes return mispredicts & days; a teammate's branch \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The first two change the identity itself. The last two only shrink the fraction, and the table
+above says how much room is left there: on the long kernels, almost none.
+
+\section{The synthetic suite against the graded runs}
+
+Every feature in this report was measured twice: on sixteen kernels written for this project, and
+on the eleven programs the autograder runs. The two measurements were not equally useful, and the
+pattern in their disagreement is the most transferable result in the document.
+
+\subsection{The two measurements}
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+& synthetic & graded \\
+\midrule
+what runs & 16 hand-written kernels & 11 compiled programs, sources unknown \\
+what is reported & cycles, stalls, redirects, CPI & wall time of the simulation, rounded to 1\,ms \\
+resolution & one cycle, always & 1\,ms; 8\% on the smallest program \\
+what it isolates & machine behaviour & machine behaviour $\times$ simulator cost \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They are not the same measurement, and neither substitutes for the other.
+
+\subsection{Every feature, side by side}
+
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrr}
+\toprule
+feature & predicted & synthetic & graded & transfer \\
+\midrule
+pre-decoder                    & $\approx$$-4$ cycles/test & $-4$ to $-8$ & n/a (in all builds) & -- \\
+BHT+BTB                        & $-2$ cycles/mispredict & $-20.3\%$ on \texttt{loop10} & $-12.2\%$ & 0.6 \\
+fusion v1                      & $-21.4\%$ bound & $-21.7\%$ & $+0.4\%$ & $\approx 0$ \\
+fusion v2 (both operands)      & $>-21.4\%$ & $-22.7\%$ & $+0.5\%$ & $\approx 0$ \\
+early resolution               & $\approx -4\%$ & $-3.8\%$ & $-2.1\%$ & 0.6 \\
+load-use removal + \texttt{jalr} & $\approx -1\%$ & $-1.0\%$ & $-6.2\%$ & 6.2 \\
+dead-logic removal             & $0$ cycles & $0$ & $-1.7\%$ & $\infty$ \\
+memory X-checks                & $\approx -1\%$ & $0$ & $-0.3\%$ & noise \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The transfer column is graded effect divided by synthetic effect. It ranges from zero to
+infinity, which is the point: a synthetic measurement tells you what the machine did, not what
+the grade will be.
+
+\subsection{Three reasons they diverge, in order of how much they cost}
+
+\paragraph{The workload is different.} The kernels are hand-written loops with a branch in the
+body. The graded programs are compiled C and spend their inner loops loading array elements and
+calling subroutines. Fusion is exactly the optimisation that a hand-written loop overstates: a
+counted loop written in the addi-then-branch form presents one fusable pair per iteration,
+guaranteed, while compiled code rarely presents that adjacency at all. Load-use is the opposite
+case, and it is why the same pair of numbers reads $-1.0\%$ synthetic against $-6.2\%$ graded.
+
+\paragraph{The metric has a second term.} The graded runtime is a simulation, so it is
+proportional to cycles \emph{and} to the cost of evaluating a cycle, which grows with the logic
+in the model. Fusion removed 21.7\% of the synthetic cycles and added a recogniser, a payload on
+two registers and a second memory read; the graded total did not move. The lean rebuild is the
+control experiment: same cycles, less logic, $-1.7\%$.
+
+\paragraph{The measurement is coarser and noisier.} One millisecond on an 11\,ms program is 8\%.
+Repeated runs of an unchanged build differ by 1--3\,ms. The last experiment produced a 4\,ms
+change with two programs faster and two slower, which is noise, and is recorded as noise.
+
+\subsection{What the synthetic suite is still for}
+
+It caught every regression, and it is the only place where a change can be attributed at all:
+one cycle is one cycle, with no rounding and no noise. The three bring-up bugs in the early
+resolution work were each found by a synthetic trace, not by a graded run. It also produced the
+21.4\% bound that made the fusion experiment cheap to run and its failure interpretable ---
+without that bound, a graded result of $+0.4\%$ would have looked like a broken build.
+
+What it cannot do is rank features against each other, because the ranking depends on a workload
+it does not contain. That is a structural limitation, not a bug in the kernels, and the only fix
+is to measure on the graded programs often enough that the disagreement shows up early.
 
 \section{Engineering notes}
 
