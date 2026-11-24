@@ -1007,6 +1007,40 @@ where a RAS pays. The graded probe answers less than it looked like it would.
 
 The `BTB_ENABLE` localparam was added for that probe.
 
+### Lean build graded result — the metric has two terms
+
+The lean build (fusion removed, everything else identical, 1275 cycles either way) was graded
+against v2:
+
+| graded program | v2 | lean | change |
+|---|---|---|---|
+| Fibonacci | 0.474 | **0.458** | -3.4\% |
+| GCD | 0.065 | **0.063** | -3.1\% |
+| Check vowel | 0.175 | **0.170** | -2.9\% |
+| Factorial | 0.113 | **0.112** | -0.9\% |
+| Bubble sort | 0.196 | **0.195** | -0.5\% |
+| Perf | 0.453 | **0.452** | -0.2\% |
+| Sum array, swap, swap shift, simple add | -- | unchanged | 0.0\% |
+| **total** | **1.573** | **1.546** | **-1.7\%** |
+
+All correct. **27 ms on a build with identical cycle counts**, so the whole difference is
+per-cycle simulation cost.
+
+The graded metric therefore has two terms: cycles, and the cost of evaluating a cycle, which
+grows with the amount of logic in the model. That retro-explains the whole ledger:
+
+* prediction added tables and cut about 20\% of cycles: the cycle term dominated;
+* fusion added a recogniser, a payload on two registers and a second memory read to cut
+  21.7\% of cycles: the two terms cancelled exactly, which is why it measured +0.4\%;
+* early resolution added a comparator to cut 3.8\%: net -2.1\%;
+* load-use forwarding added one mux and removed the stall: net -6.2\%;
+* deleting dead logic changed no cycles: net -1.7\%.
+
+Consequence worth stating in any write-up: on this metric a saved cycle and an added gate can
+cancel, so making the design smaller at equal cycles is as valid an optimisation as making it
+faster. The shipped build is 1.950 -> 1.546 s, -20.7\%, and it is both faster and smaller than
+where the project started.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.

@@ -3,7 +3,7 @@
 \usepackage{booktabs}
 \usepackage{amsmath}
 \setlength{\parskip}{4pt}
-\title{Control-Flow Work on an RV32I Core\\\large From a plain 5-stage pipeline to a 19\% faster one}
+\title{Control-Flow Work on an RV32I Core\\\large From a plain 5-stage pipeline to a 21\% faster one}
 \author{CTRL-ALT-ELITE}
 \date{November 2026}
 \begin{document}
@@ -16,7 +16,7 @@ turned out to be hurting performance, macro-op fusion, and early branch resoluti
 five were kept. Fusion was built, verified, measured on the graded workload, found not to
 transfer, and dropped; a second variant was built to test the obvious explanation for that
 failure and it did not transfer either. The two that were kept take the graded benchmark suite
-from 1.950\,s to 1.573\,s, a 19.3\% reduction, with all eleven programs still correct. Along
+from 1.950\,s to 1.546\,s, a 20.7\% reduction, with all eleven programs still correct. Along
 the way the project grew a small assembler, a fourteen-kernel benchmark suite, and three
 analysis tools, because none of the questions being asked could be answered with the tests that
 existed.
@@ -579,9 +579,10 @@ pre-decoder + BHT/BTB & remove mispredicts & $-12.2\%$ & about $-20\%$ \\
 macro-op fusion v1    & remove instructions & $+0.4\%$ & $-21.7\%$ \\
 macro-op fusion v2    & remove instructions & $+0.5\%$ & $-22.7\%$ \\
 early resolution      & make mispredicts cheaper & $-2.1\%$ & $-3.8\%$ \\
-load-use and \texttt{jalr} & remove stall cycles & $\mathbf{-6.2\%}$ & $-1.0\%$ \\
+load-use and \texttt{jalr} & remove stall cycles & $-6.2\%$ & $-1.0\%$ \\
+dead-logic removal & smaller model, same cycles & $\mathbf{-1.7\%}$ & $0\%$ \\
 \midrule
-cumulative & & $\mathbf{-19.3\%}$ & \\
+cumulative & & $\mathbf{-20.7\%}$ (1.950 $\rightarrow$ 1.546\,s) & \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -595,6 +596,62 @@ know which is to measure on the workload that is actually scored. That is not a 
 the local suite: the sweep family, the fusion census and the 21.4\% bound are what made the
 fusion experiment cheap to run and its failure interpretable. It is a reason to treat the
 autograder as part of the experiment loop rather than as a final check.
+
+\subsection{What the autograder actually measures}
+
+One anomaly survived everything else in this report. Fusion removed 21.7\% of the cycles on the
+kernels and changed the graded total by nothing. The obvious explanation was that the pattern
+is absent from the compiled binaries, and the second variant was built to test it; when that
+also returned nothing, the explanation was in doubt.
+
+There is a second explanation, and it is testable without changing a single cycle. The graded
+runtime is a simulation, so it is proportional to \emph{cycles} times \emph{the cost of
+evaluating one cycle}, and the second term grows with the amount of logic in the model. Fusion
+added a recogniser, a payload on two pipeline registers and a second combinational
+instruction-memory read. If the second term is real, then deleting that logic while keeping the
+cycle count identical should make the graded runtime fall.
+
+The lean build is exactly that experiment: fusion removed, everything else untouched,
+**1275 cycles either way**, all 69 local tests passing, all fourteen kernels at identical cycle
+counts.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+graded program & October & v2 build & lean build & vs v2 \\
+\midrule
+Fibonacci   & 0.586 & 0.474 & \textbf{0.458} & $-3.4$\% \\
+GCD         & 0.084 & 0.065 & \textbf{0.063} & $-3.1$\% \\
+Check vowel & 0.183 & 0.175 & \textbf{0.170} & $-2.9$\% \\
+Factorial   & 0.147 & 0.113 & \textbf{0.112} & $-0.9$\% \\
+Bubble sort & 0.248 & 0.196 & \textbf{0.195} & $-0.5$\% \\
+Perf        & 0.587 & 0.453 & \textbf{0.452} & $-0.2$\% \\
+Sum array   & 0.057 & 0.045 & 0.045 & $0.0$\% \\
+Simple if   & 0.013 & 0.012 & 0.011 & $-8.3$\% \\
+Swap, swap shift, simple add & & & unchanged & $0.0$\% \\
+\midrule
+total (s)   & 1.950 & 1.573 & \textbf{1.546} & $-1.7$\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$27\,\mathrm{ms}$ on a build with identical cycles. All programs still correct.
+
+So the metric has two terms and both are real. It also retro-explains the ledger: every feature
+was a mix of cycles saved and model size added\begin{itemize}
+\item prediction added tables and saved about 20\% of the cycles, so the cycle term dominated;
+\item fusion added a recogniser and a second memory port to save 21.7\%, and the two terms
+  cancelled exactly;
+\item early resolution added a comparator to save 3.8\%, netting $-2.1$\%;
+\item load-use forwarding added one multiplexer and saved the stall, netting $-6.2$\%;
+\item deleting dead logic added nothing and saved nothing in cycles, netting $-1.7$\%.
+\end{itemize}
+
+The practical consequence is uncomfortable but useful: **a cycle saved and a gate added can
+cancel on this metric**, so the cheapest way to score well is to make the design smaller at
+equal cycles, not only faster. That is worth stating plainly in the report of a project whose
+stated goal is a faster core, because the two objectives are not identical.
 
 \section{Engineering notes}
 
