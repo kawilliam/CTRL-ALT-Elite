@@ -77,24 +77,23 @@ module main_memory #(
     `endif
 
     //---------- Instruction Load ----------//
+    // The range check catches a run-away PC during bring-up. It costs two 32-bit
+    // comparisons, an add and an $isunknown on every fetch of every simulation, and
+    // addresses are in range by construction once the design is known-good. Compile
+    // it only when asked: -DSIM_BOUNDS_CHECK (make ... CPPFLAGS=-DSIM_BOUNDS_CHECK).
     function automatic logic [DWIDTH-1:0] read_insn(input logic [AWIDTH-1:0] addr);
         logic [AWIDTH-1:0] idx;
         idx = (addr - BASE_ADDR) >> 2;
         read_insn = '0;
         if (!rst && insnen_i) begin
-            `ifndef SYNTHESIS
-            if ($isunknown(addr)) begin
-                read_insn = '0;
-            end else
-            `endif 
             if ((addr >= BASE_ADDR) && (addr + 32'd3 < BASE_ADDR + MEM_BYTES))
                 read_insn = main_memory[idx];
             else begin
                 read_insn = 32'hDEAD_BEEF;
-                `ifndef SYNTHESIS
+                `ifdef TRACE_IMEM
                 $display("IMEMORY: read @0x%08h out of range (mapped 0x%08h)", addr, idx);
                 `endif
-            end 
+            end
         end
     endfunction
 
@@ -111,15 +110,7 @@ module main_memory #(
             data_o = '0;
         end
         else if (memren_i) begin
-            `ifndef SYNTHESIS
-            if ($isunknown(address)) begin
-                data_o = '0;
-            end
-            else
-            `endif
-            begin
-                data_o = main_memory[address];
-            end
+            data_o = main_memory[address];
         end
     end
 

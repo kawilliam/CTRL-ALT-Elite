@@ -1041,6 +1041,28 @@ cancel, so making the design smaller at equal cycles is as valid an optimisation
 faster. The shipped build is 1.950 -> 1.546 s, -20.7\%, and it is both faster and smaller than
 where the project started.
 
+### Compiling out the memory model's per-cycle checks
+
+The memory read function tests every fetch with `$isunknown(addr)` and a range comparison, and
+the data read tests `$isunknown(address)` again. Both run on every cycle of every simulation.
+
+Two attempts:
+
+1. **Remove the range check too.** Broke `test1` and `test2`: both complete and then report
+   failure, so the check is load-bearing, not decorative. Kept.
+2. **Remove only the two `$isunknown` tests.** 69/69, cycles identical (sweep100 314, nested
+   102, array-idx 80). The `$isunknown` guards were never exercised.
+
+Local per-cycle cost on a 6014-cycle image, `+nodump`, six runs each:
+
+| build | runs | median |
+|---|---|---|
+| stock | 1.500 1.490 1.470 1.490 1.510 1.480 | 1.490 s |
+| X-checks removed | 1.470 1.490 1.480 1.470 1.500 1.470 | 1.475 s |
+
+About 1\%, and the ranges overlap: this machine cannot resolve it. The graded comparison is the
+real test, in the same way the lean build's 1.7\% could only be seen there.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.
