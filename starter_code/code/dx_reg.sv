@@ -73,10 +73,6 @@ module dx_reg #(
         input logic memwren_i, // Whether to write to memory
         input logic [1:0] wbsel_i, // What to write to reg file - ALU res, mem data, pc+4, or imm
         input logic [AWIDTH-1:0] pred_npc_i, // next PC fetch predicted for this instruction
-        input logic fused_i, // this slot is a fused addi+branch pair
-        input logic [2:0] br_funct3_i, // condition of the fused pair's branch
-        input logic [AWIDTH-1:0] br_target_i, // redirect target of the fused pair
-        input logic t_first_i, // 1 = the addi result compares as the branch's rs1
         input logic resolved_i, // 1 = this jalr already redirected in D
 
   // outputs
@@ -92,10 +88,6 @@ module dx_reg #(
   output logic [4:0] rs2_o,
   output logic [12:0] ctrl_reg_o,
   output logic [AWIDTH-1:0] pred_npc_o,
-  output logic fused_o,
-  output logic [2:0] br_funct3_o,
-  output logic [AWIDTH-1:0] br_target_o,
-  output logic t_first_o,
   output logic resolved_o
 );
   always_ff @(posedge clk or posedge rst) begin
@@ -112,10 +104,6 @@ module dx_reg #(
       rs2_o <= '0;
       ctrl_reg_o <= '0;
       pred_npc_o <= '0;
-      fused_o <= 1'b0;
-      br_funct3_o <= 3'd0;
-      br_target_o <= '0;
-      t_first_o <= 1'b0;
       resolved_o <= 1'b0;
     end else if (flush_i || stall_i) begin
       pc_o <= '0;
@@ -130,10 +118,6 @@ module dx_reg #(
       rs2_o <= '0;
       ctrl_reg_o <= '0;
       pred_npc_o <= '0;
-      fused_o <= 1'b0;
-      br_funct3_o <= 3'd0;
-      br_target_o <= '0;
-      t_first_o <= 1'b0;
       resolved_o <= 1'b0;
     end else begin
       pc_o <= pc_i;
@@ -147,10 +131,6 @@ module dx_reg #(
       rs1_o <= rs1_i;
       rs2_o <= rs2_i;
       pred_npc_o <= pred_npc_i;
-      fused_o <= fused_i;
-      br_funct3_o <= br_funct3_i;
-      br_target_o <= br_target_i;
-      t_first_o <= t_first_i;
       resolved_o <= resolved_i;
       ctrl_reg_o <= {alusel_i, wbsel_i, memwren_i, memren_i, rs2sel_i, rs1sel_i, regwren_i, immsel_i, pcsel_i};
     end

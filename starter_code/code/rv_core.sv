@@ -26,22 +26,8 @@ module rv_core
     //               that will feed into jump_branch_i port in fetch module.
     //               No changes are necessary in fetch logic (fetch.sv)
     // fetch signals
-    logic fuse_found;
-    logic fuse_stride8;
-    logic [4:0] fuse_rs2;
-    logic       fuse_t_first;
-    logic [AWIDTH-1:0] bht_pc;
-    logic              fuse_bp_taken;
     // fusion payload, fetch -> D -> X
-    logic              fd_fused,   dx_fused,   e_fuse_taken;
-    logic              fd_t_first, dx_t_first;
     logic              dx_resolved;
-    logic [4:0]        fd_br_rs2;
-    logic [2:0]        fd_br_funct3, dx_br_funct3;
-    logic [31:0]       fd_br_target, dx_br_target;
-    logic [2:0] fuse_funct3;
-    logic [31:0] fuse_target;
-    logic [31:0] fuse_imm;
 
     logic [AWIDTH-1:0] f_pc;          // next-PC input to fetch
     logic [AWIDTH-1:0] pc;            // current PC
@@ -166,8 +152,6 @@ module rv_core
     wire btb_hit_raw;
     assign btb_hit = BTB_ENABLE & btb_hit_raw;
 
-    localparam bit FUSE_ENABLE = 1'b0;   // fusion is not shipped; see docs/experiments.md Experiment 4
-    wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
 
     // Branch prediction: jal is redirected by the pre-decoder (target is exact).
     // A branch is predicted taken when the BHT says so, using the pre-decoder's target.
@@ -186,8 +170,6 @@ module rv_core
     // instruction, so it can only be predicted by looking it up explicitly. One
     // mux on the index is enough -- the pair's own PC is not a branch and needs
     // no direction, so the two addresses never both matter in one cycle.
-    assign bht_pc = fuse_on ? pc + 32'd4 : pc;
-    assign fuse_bp_taken = fuse_on & bht_taken;
 
     // Where do we actually fetch next?
     // if (execute says an older guess was wrong)   next = the correct address from execute
@@ -196,18 +178,16 @@ module rv_core
     assign f_pc = (mispredict) ? e_npc
                 : (flush_d) ? d_npc
                 : (pre_en_redir) ? pre_target
-                : (fuse_bp_taken) ? fuse_target
                 : (bp_taken) ? bp_target
                 : pc;
 
     // Save our guess for this instruction, to be checked in execute
     assign f_pred_npc = (pre_en_redir) ? pre_target
-                      : (fuse_bp_taken) ? fuse_target
                       : (bp_taken) ? bp_target
-                      : pc + (fuse_on ? 32'd8 : 32'd4);
+                      : pc + 32'd4;
 
     // Checks if next anything other than pc + 4, feeds to fetch module
-    assign jump_branch = mispredict || flush_d || pre_en_redir || fuse_bp_taken || bp_taken;
+    assign jump_branch = mispredict || flush_d || pre_en_redir  || bp_taken;
 
     // stall and flush logic instantiation
     // For stage 1, you do not need to modify this
@@ -230,7 +210,6 @@ module rv_core
         .next_pc_i(f_pc),
         .pc_en_i(pc_en),
         .jump_branch_i(jump_branch),
-        .stride8_i(fuse_on),
         .pc_o(pc)
     );
 
@@ -259,10 +238,10 @@ module rv_core
     ) bht1 (
       .clk(clk),
       .rst(reset),
-      .pc_i(bht_pc),
-      .update_i((dx_opcode == `B_TYPE) || dx_fused),
-      .update_pc_i(dx_fused ? dx_pc + 32'd4 : dx_pc),
-      .update_taken_i(dx_fused ? e_fuse_taken : e_brtaken),
+      .pc_i(pc),
+      .update_i(dx_opcode == `B_TYPE),
+      .update_pc_i(dx_pc),
+      .update_taken_i(e_brtaken),
       .taken_o(bht_taken)
     );
 
@@ -281,20 +260,6 @@ module rv_core
       .target_o(btb_target)
     );
 
-    // Macro-op fusion: addi + branch
-    fuse_detect fuse_detect1 (
-      .insn_a_i (f_insn),
-      .insn_b_i (32'd0),   // not shipped; constant input lets it fold away
-      .pc_i (pc),
-      .is_insn_i (is_insn_en),
-      .fused_o (fuse_found),
-      .stride8_o (fuse_stride8),
-      .rs2_o (fuse_rs2),
-      .t_first_o (fuse_t_first),
-      .br_funct3_o (fuse_funct3),
-      .br_target_o (fuse_target),
-      .br_imm_o (fuse_imm)
-    );
 
     // ---------- F/D ---------- //
     // F/D instantiation
@@ -309,19 +274,9 @@ module rv_core
       .flush_i(flush | flush_d),
       .stall_i(stall),
       .pred_npc_i(f_pred_npc),
-      .fused_i(fuse_on),
-      .br_rs2_i(fuse_rs2),
-      .br_funct3_i(fuse_funct3),
-      .br_target_i(fuse_target),
-      .t_first_i(fuse_t_first),
       .pc_o(fd_pc),
       .insn_o(fd_insn),
-      .pred_npc_o(fd_pred_npc),
-      .fused_o(fd_fused),
-      .br_rs2_o(fd_br_rs2),
-      .br_funct3_o(fd_br_funct3),
-      .br_target_o(fd_br_target),
-      .t_first_o(fd_t_first)
+      .pred_npc_o(fd_pred_npc)
     );
 
     // ---------- DECODE STAGE ---------- //
@@ -459,11 +414,7 @@ module rv_core
       .funct7_i(d_funct7),
       .rd_i(d_rd),
       .rs1_i(d_rs1),
-      // rf_rs2, not d_rs2: for a fused pair d_rs2 holds the addi's immediate
-      // field, so dx_rs2 must carry the branch's rs2 or the X-stage forwarding
-      // selectors (xm_rd/mw_rd == dx_rs2) never match and the compared operand
-      // falls back to a stale register value.
-      .rs2_i(rf_rs2),
+      .rs2_i(rf_rs2),   // == d_rs2; the fused-pair mux is gone with the feature
       .flush_i(flush),
       .stall_i(stall),
       .pcsel_i(c_pcsel),
@@ -476,10 +427,6 @@ module rv_core
       .memwren_i(c_memwren),
       .wbsel_i(c_wbsel),
       .pred_npc_i(fd_pred_npc),
-      .fused_i(fd_fused),
-      .br_funct3_i(fd_br_funct3),
-      .br_target_i(fd_br_target),
-      .t_first_i(fd_t_first),
       .resolved_i(d_jalr_resolved),
       .pc_o(dx_pc),
       .imm_o(dx_imm),
@@ -493,10 +440,6 @@ module rv_core
       .rs2_o(dx_rs2),
       .ctrl_reg_o(`D_X),
       .pred_npc_o(dx_pred_npc),
-      .fused_o(dx_fused),
-      .br_funct3_o(dx_br_funct3),
-      .br_target_o(dx_br_target),
-      .t_first_o(dx_t_first),
       .resolved_o(dx_resolved)
     );
 
@@ -554,43 +497,13 @@ module rv_core
     // Conditional branches are resolved in D (see the early-resolution block), so
     // only jal/jalr and fused pairs are still checked here. Leaving B_TYPE in
     // makes the X-stage redirect win over the D-stage one and cancels the gain.
-    assign e_ctrl = (e_pcsel && !dx_resolved) || dx_fused;
-
-    // Fused compare: the branch in the pair compares the addi's result
-    logic fuse_breq, fuse_brlt, fused_brtaken;
-
-    branch_control #(.DWIDTH(DWIDTH)) fuse_cmp (
-      .opcode_i(`B_TYPE),
-      .funct3_i(dx_br_funct3),
-      // v2: the addi result may sit on either side of the comparison. Swapping
-      // both operands preserves BEQ/BNE and inverts BLT/BGE, which is exactly
-      // what the mirrored form needs.
-      .rs1_i(dx_t_first ? e_res    : fwd_rs2),
-      .rs2_i(dx_t_first ? fwd_rs2  : e_res),
-      .breq_o(fuse_breq),
-      .brlt_o(fuse_brlt)
-    );
-
-    always_comb begin
-      fused_brtaken = 1'b0;
-      case (dx_br_funct3)
-        `F3_BEQ: fused_brtaken = fuse_breq;
-        `F3_BNE:  fused_brtaken = !fuse_breq;
-        `F3_BLT:  fused_brtaken =  fuse_brlt;
-        `F3_BLTU: fused_brtaken =  fuse_brlt;
-        `F3_BGE:  fused_brtaken = !fuse_brlt;
-        `F3_BGEU: fused_brtaken = !fuse_brlt;
-        default: fused_brtaken = 1'b0;
-      endcase
-    end
-
-    assign e_fuse_taken = dx_fused && fused_brtaken;
+    assign e_ctrl = e_pcsel && !dx_resolved;
 
 
-    // Where does the program really go next?
-    assign e_npc = (e_fuse_taken) ? dx_br_target 
-                : (e_brtaken || e_pcsel) ? e_res 
-                : dx_pc + (dx_fused ? 32'd8 : 32'd4);
+
+    // Where does the program really go next? Conditional branches no longer reach
+    // here -- they resolve in D -- so this only covers jal and jalr.
+    assign e_npc = (e_brtaken || e_pcsel) ? e_res : (dx_pc + 32'd4);
 
     // Compare with what fetch saved
     assign mispredict = e_ctrl && (dx_pred_npc != e_npc);
@@ -700,7 +613,9 @@ module rv_core
     // ---------- REGISTER FILE ------- //
 
     // ---- Control Signal Wires (WB) -- //
-    assign rf_rs2 = fd_fused ? fd_br_rs2 : d_rs2;
+    // rf_rs2 was a mux while fusion existed; with the feature gone it is d_rs2.
+    // The name is kept because the hazard check and the D-stage forwarding read it.
+    assign rf_rs2 = d_rs2;
 
     // Register file instantiation
     register_file #(

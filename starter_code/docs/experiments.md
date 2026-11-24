@@ -949,6 +949,19 @@ which.
 
 Two side questions came out of a discussion about what to optimise after prediction.
 
+### Removing the fusion path completely
+
+The first pass removed the second memory port and tied the detector's input to a constant, but
+left the module instantiated and left the fused comparator, the `dx_fused` terms and the
+payload ports in place. That is dead logic paying rent in every cycle of simulation, and it is
+now gone: the instantiation, the `FUSE_ENABLE` mask, the fused comparator in execute, the
+payload ports on both pipeline registers and the fetch stride input have all been removed.
+`code/fuse_detect.sv` remains in the tree with a header saying it is not instantiated, because
+its testbench is still part of the regression.
+
+Verified after removal: 69/69 pass, all fourteen kernels at identical cycle counts (1275), and
+both unit testbenches still pass (16 and 27 checks).
+
 ### Is the second instruction-memory port costing simulation time?
 
 The fusion work added a second combinational IMEM read at `pc+4`, and the fusion machinery is

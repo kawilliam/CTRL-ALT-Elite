@@ -1,3 +1,7 @@
+// NOT INSTANTIATED. Macro-op fusion was measured on the graded programs and
+// rejected (docs/experiments.md, Experiment 4). The module is kept for two
+// reasons: its testbench is still part of the regression, and the measurement
+// is reproducible from the sources. Nothing in rv_core.sv references it.
 // fuse_detect -- STUB. All outputs tied low.
 //
 // This exists only to give the golden-model testbench something to fail against:
