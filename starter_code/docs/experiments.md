@@ -945,6 +945,55 @@ Against fusion, which the local suite overstated by roughly 50x, this feature wa
 by 1.3x. A hand-written suite can be wrong in both directions; only the graded programs say
 which.
 
+## Simulator cost, and two calibration kernels
+
+Two side questions came out of a discussion about what to optimise after prediction.
+
+### Is the second instruction-memory port costing simulation time?
+
+The fusion work added a second combinational IMEM read at `pc+4`, and the fusion machinery is
+still instantiated with its outputs masked off. That looked like dead weight being paid for
+every cycle. It was removed (port, wiring, and the detector's input tied to a constant) and
+measured:
+
+* 14 kernels: cycles unchanged (1339 -> same 1275 build), 67/67 pass. Correct, as expected.
+* wall time on a 764-cycle image: 0.33 s before, 0.33 s after. No measurable difference.
+
+The reason becomes obvious as soon as the dump is examined: **every run writes a 10 MB VCD**,
+because both testbenches call `$dumpfile`/`$dumpvars` unconditionally. On a 6014-cycle image,
+dumping costs 2.47 s against 1.49 s with dumping off, so roughly 40\% of local wall time is
+file I/O and the rest is model evaluation. A few removed signals cannot show through that.
+
+`+nodump` was added to `top_tb.sv` so model cost can be measured separately in future.
+
+Note for interpreting the autograder: if the course harness also dumps, then its reported
+runtime is `cycles x cost-per-cycle` where the cost depends on how many signals change. That is
+a coherent explanation for the one result that never fit: fusion removed 21.7\% of the cycles on
+the kernels and changed the graded total by nothing, because it also added state and a second
+memory read.
+
+### Two kernels written to calibrate the local suite
+
+The local suite overstated fusion by about 50x and understated the load-use work by 1.3x, so it
+does not model compiled code well. Two kernels were added to close the gap:
+
+| kernel | shape | cycles | what it is for |
+|---|---|---|---|
+| `array-swap-loop` | bubble sort: nested loops, two loads per iteration, data-dependent branch, conditional stores | 129 | array/load density like a compiled array program |
+| `calls-in-loop` | 20 calls and returns from **two** call sites into one subroutine | 196 | call/return density |
+
+`calls-in-loop` was written twice. With a single call site it takes 117 cycles, and disabling
+the BTB costs 19 of them (16\%), which only shows that a BTB predicts a return fine when there
+is one place to return to. With two call sites the BTB entry has two possible targets: the
+kernel takes 196 cycles and **disabling the BTB changes nothing at all** (196 either way). That
+is the situation a return-address stack exists to fix, and it is now measurable locally.
+
+The probe-design consequence is worth recording: a BTB-off measurement on the graded suite
+cannot separate "few calls" from "calls the BTB cannot predict", and the second case is exactly
+where a RAS pays. The graded probe answers less than it looked like it would.
+
+The `BTB_ENABLE` localparam was added for that probe.
+
 ## Future experiments
 
 Append a new numbered experiment section per structural decision, same table shape.

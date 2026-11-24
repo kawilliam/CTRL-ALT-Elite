@@ -181,8 +181,10 @@ module top_tb;
    `endif
 
 initial begin
-      $dumpfile("top_tb.vcd");
-      $dumpvars(0, top_tb);
+      if (!$test$plusargs("nodump")) begin
+        $dumpfile("top_tb.vcd");
+        $dumpvars(0, top_tb);
+      end
       $system("date");
       wait (!rst);
       forever begin

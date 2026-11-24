@@ -1,0 +1,692 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\setlength{\parskip}{4pt}
+\title{Control-Flow Work on an RV32I Core\\\large From a plain 5-stage pipeline to a 19\% faster one}
+\author{CTRL-ALT-ELITE}
+\date{November 2026}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report covers five experiments run on a five-stage in-order RV32I core: a fetch-stage
+pre-decoder, a branch history table and branch target buffer, a repair to that table after it
+turned out to be hurting performance, macro-op fusion, and early branch resolution. Two of the
+five were kept. Fusion was built, verified, measured on the graded workload, found not to
+transfer, and dropped; a second variant was built to test the obvious explanation for that
+failure and it did not transfer either. The two that were kept take the graded benchmark suite
+from 1.950\,s to 1.573\,s, a 19.3\% reduction, with all eleven programs still correct. Along
+the way the project grew a small assembler, a fourteen-kernel benchmark suite, and three
+analysis tools, because none of the questions being asked could be answered with the tests that
+existed.
+\end{abstract}
+
+\section{Starting point}
+
+The core at the start of this work was a five-stage in-order pipeline (IF, D, X, M, WB) with
+a combinational instruction memory, no branch prediction of any kind, and 53 directed tests
+passing. Every conditional branch and every jump waited until execute to find out where it was
+going. When a branch mispredicted, the two instructions behind it in F and D had to be
+discarded and the pipeline refilled: two wasted cycles per redirect.
+
+Everything in this report is about control flow, because that is where the cycles were. The
+arithmetic path was not the problem; the pipeline was spending its time waiting on decisions
+that could have been made earlier.
+
+Two constraints shaped the work. The graded benchmark programs are compiled binaries that the
+course runs on its own autograder. Their sources are not available, so every claim has to be
+checked twice: once on code we can see, and once on the submission that gets graded. The second
+check is the one that decides whether a feature ships.
+
+\section{How everything was measured}
+
+\subsection{The experiment loop}
+
+Each change went through the same steps. A baseline was frozen: the full suite run once, with
+pass/fail and per-test cycles recorded, so that any later run could be compared against a
+known-good state. Then a hypothesis was written down before any RTL, stating what should change
+and what must not. Then the module's ports and timing contract were specified. Then the RTL was
+written, unit-tested, and put through the full suite. Any test that passed at the baseline and
+fails afterwards is a behavioural divergence, and a cycle count that moves on a test the change
+should not touch is treated the same way.
+
+\subsection{Feature masks}
+
+Two of the features in this report can be switched off at compile time, by a single
+\texttt{localparam}:
+
+\begin{verbatim}
+    localparam bit FUSE_ENABLE = 1'b0;   // macro-op fusion
+\end{verbatim}
+
+That one bit made the whole difference in the fusion work. With it low, the design is
+bit-identical to the core without the feature: the same 67 tests pass with the same cycle
+counts, test by test. That let the plumbing be landed, and proven inert, before the feature was
+allowed to change behaviour. It also made every later comparison a single-character diff against
+the same build, which removes a class of ambiguity that otherwise takes hours to chase.
+
+\subsection{The autograder as the second measurement}
+
+Local measurements use 14 benchmark kernels written for this project. They are useful and they
+are not the graded workload. Every feature that looked promising locally was therefore also
+built into a submission zip and graded. Twice this second step disagreed with the first, in
+opposite directions, and both times it was right.
+
+\subsection{What a number means}
+
+Simulation is deterministic. The same RTL and the same program image produce the same cycle
+count, always. So a cycle difference between two builds is attributable, and there is no
+run-to-run noise to average away.
+
+The autograder is not like that. It reports simulation wall time rounded to a millisecond. On
+a program that runs for 12\,ms, that is an 8\% quantum, so small programs cannot resolve small
+effects at all. The programs worth reading are the ones above 50\,ms: Perf, Fibonacci, Bubble
+sort, Check vowel, Factorial, GCD and Sum array.
+
+\section{Tools and benchmarks built along the way}
+
+None of the questions in this report could be answered with the tests that existed, so a fair
+amount of the work was building the means to measure.
+
+\subsection{An assembler}
+
+\texttt{tools/rvasm.py} is a small RV32I assembler. The need for it was practical: the existing
+directed tests were hand-encoded, and hand encoding is a real source of error. During this work
+a helper that builds \texttt{jal} placed \texttt{imm[11]} at instruction bit 10 instead of bit
+20, corrupting the destination register field as well. Reading the source would not have found
+that.
+
+The assembler is validated by reproduction: it assembles all thirteen hand-written sources in
+\texttt{pipeline\_tests} and reproduces their checked-in images byte for byte. That
+covers the instruction subset those tests use, and any error in a field would show as a diff.
+
+\subsection{Fourteen kernels}
+
+\texttt{code/benchmarks/} holds programs whose sources sit next to their images. They were
+written for specific measurements:
+
+\begin{itemize}
+\item \texttt{sweep4} through \texttt{sweep100}: one counted loop, one branch in the body, five
+  different trip counts. The only variable between them is iterations.
+\item \texttt{loop10}, \texttt{fib}: loops with arithmetic in the body, for forwarding and
+  dependency work.
+\item \texttt{nested}: five outer iterations of a four-iteration inner loop. The inner loop
+  exits once per outer iteration, which no single loop can expose.
+\item \texttt{if-in-loop}: a branch inside a hot loop that falls through exactly once.
+\item \texttt{sum-array}, \texttt{array-idx}: array loops with load-use pairs and, in the
+  first, stores.
+\item \texttt{smul}: a shift-and-add multiply over 32 iterations, which is the shape a libgcc
+  multiply takes on this ISA.
+\item \texttt{callret}: \texttt{jal x1} and \texttt{jalr x0,0(x1)} pairs, the canonical
+  call/return idiom for a return-address stack.
+\item \texttt{smoke}: two instructions, to separate harness failures from program failures.
+\end{itemize}
+
+\subsection{Analysis tools}
+
+Three scripts do the counting that the design decisions depended on:
+
+\begin{itemize}
+\item \texttt{fusion\_analysis.py} recovers the dynamic instruction stream from each kernel's
+  source plus its measured retired-instruction count, so a pair inside a loop is counted once
+  per iteration rather than once per line.
+\item \texttt{objdump\_analysis.py} reads a RISC-V \texttt{objdump} listing and reports the
+  instruction mix and every \texttt{addi}+branch adjacency, split by which operand the branch
+  tests, with loop-backs called out separately. It exists because the hand-written kernels
+  turned out not to be representative, and compiled code had to be inspected directly.
+\item The commit-trace comparison logs every architectural writeback from two builds and diffs
+  the sequences. It is the tool that found all three bring-up bugs in the early-resolution work.
+\end{itemize}
+
+\subsection{Unit testbenches}
+
+Two modules have their own testbenches, each a table of input rows with expected outputs, driven
+on one clock edge and checked on the other with case equality:
+
+\begin{itemize}
+\item \texttt{pre\_decode\_tb}: 27 rows, all passing.
+\item \texttt{fuse\_detect\_tb}: 12 rows for v1 of the fusion recogniser, 16 after v2 added the
+  mirrored operand form. Includes a second base address and a row whose source and destination
+  registers differ, so that neither the PC nor the register fields can go unread without a
+  failure.
+\end{itemize}
+
+\section{Experiment 1: a fetch-stage pre-decoder}
+
+\subsection{Hypothesis}
+
+Every jump waited for execute. But the instruction word is available in IF, and the instruction
+memory is combinational, so a \texttt{jal} can be recognised and its target computed in the same
+cycle it is fetched. The prediction was that \texttt{jal} would lose four cycles and everything
+else would not move.
+
+\subsection{Build}
+
+\texttt{pre\_decode.sv} takes the instruction, its PC and a validity signal, and produces the
+target, the link value, a CFI class, and three qualifiers: is this a call, is it a return, does
+it redirect from IF. It is purely combinational. The redirect itself is one term in the
+fetch-PC multiplexer.
+
+\subsection{Result}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+test & baseline & with pre-decoder & change \\
+\midrule
+\texttt{rv32ui-p-jal}   & 27 & 23 & $-4$ \\
+\texttt{rv32ui-p-auipc} & 30 & 26 & $-4$ \\
+\texttt{test1}          & 53 & 47 & $-6$ \\
+\texttt{test2}          & 64 & 56 & $-8$ \\
+\texttt{rv32ui-p-jalr}  & 98 & 98 & $0$ (predicted exactly zero) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The other 49 tests were unchanged and all 53 passed. The \texttt{jalr} row is the useful one:
+its target depends on a register value, so IF cannot compute it, and the hypothesis said it
+would not move. It did not.
+
+\section{Experiment 2: a branch history table and a branch target buffer}
+
+\subsection{Hypothesis and build}
+
+Conditional branches are the remaining redirects. A two-bit counter per branch, indexed by PC,
+can predict direction; a small table of stored targets can predict \texttt{jalr} targets. Both
+are read in IF and trained in execute.
+
+\subsection{Result}
+
+The two halves behaved very differently.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+test & cycles, before & cycles, after & flushes, after & verdict \\
+\midrule
+\texttt{rv32ui-p-jalr} & 98 & \textbf{92} & 12 & BTB pays: $-6$ cycles, $-3$ flushes \\
+\texttt{rv32ui-p-bne}  & 315 & 319 & 31 & worse \\
+\texttt{rv32ui-p-beq}  & 311 & 317 & 30 & worse \\
+\texttt{rv32ui-p-blt}  & 311 & 317 & 30 & worse \\
+\texttt{rv32ui-p-bge}  & 347 & 357 & 41 & worse \\
+\texttt{rv32ui-p-bgeu} & 372 & 382 & 41 & worse \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{jalr} improvement is what a working BTB should look like. The branch tests getting
+\emph{slower} is not what a working direction predictor looks like. The BTB was adopted; the BHT
+was not mergeable as it stood.
+
+\section{Experiment 3: why the branch table was hurting}
+
+\subsection{The suspect}
+
+With 64 untagged entries indexed by \texttt{pc[7:2]}, each entry covers 256 bytes of program.
+A test with many branches in a small region will have several of them mapping to the same
+counter. The obvious fix was more entries.
+
+The index was raised from 6 bits to 10. Nothing changed: the branch tests stayed exactly as
+slow. That result is worth recording because the first attempt at it silently did nothing, since
+the instantiation in \texttt{rv\_core.sv} overrode the module's parameter. Once the override was
+changed, the numbers were real: 1024 entries, same regression. So aliasing was not the
+mechanism, or not the whole mechanism.
+
+\subsection{The actual cause}
+
+The table had a tag per entry, and the read path compared the tag and a valid bit. That was
+working. The problem was on the write side: the tag recorded which branch had written the entry
+last, but the two-bit counter held a mixture of outcomes from whichever branches had used that
+entry before. A read whose tag matched therefore got a counter that did not describe it.
+
+The fix is a write-side tag comparison as well, plus cold seeding: a new entry starts at
+\texttt{STRONG\_NT} and takes only the current outcome, rather than inheriting whatever the
+previous occupant left behind. An intermediate attempt seeded new entries as taken, which
+invented predictions that did not exist and made the branch tests worse still (335 cycles, 39
+flushes) before the cold seed put them back at the pre-predictor numbers (311 cycles, 27
+flushes).
+
+The finished table costs 704 flip-flops.
+
+\subsection{What this left unproven}
+
+The BHT made zero correct predictions on the directed tests, because those tests execute each
+branch about once. The table was now correct and not harmful, but nothing in the suite could
+show it helping. That is the direct origin of the benchmark suite: a predictor needs a branch
+that repeats, and the directed tests had none.
+
+\section{Experiment 4: macro-op fusion}
+
+\subsection{Where the idea came from}
+
+After the predictor, the remaining overhead on the kernels was 13.6\% of cycles, and the largest
+single item was the redirect cost itself. The other axis is to eliminate instructions: if two
+architecturally separate instructions always execute back to back, they can occupy one slot.
+
+The obvious candidate is the loop counter. Every counted loop ends with the same two
+instructions:
+
+\begin{verbatim}
+    addi x5, x5, -1
+    bne  x5, x0, loop
+\end{verbatim}
+
+\subsection{The gate, before any RTL}
+
+The first version of this analysis counted adjacencies once per source line, which overstates
+the benefit: a pair inside a loop fires once per iteration. Re-running it against the recovered
+dynamic stream gave the numbers that decided whether to build anything at all.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+candidate & dynamic pairs & share of cycles & implementation cost \\
+\midrule
+\texttt{addi} + conditional branch & 310 & 23.2\% & 3 of 5 \\
+\texttt{lw} + consumer             & 12 & 0.9\% & 5 of 5 \\
+\texttt{add} + \texttt{sw}          & 12 & 0.9\% & 2 of 5 \\
+\texttt{add} + \texttt{lw}          & 12 & 0.9\% & 2 of 5 \\
+\texttt{lui}/\texttt{auipc} + op    & 2 & 0.1\% & 2 of 5 \\
+\texttt{slt} + branch               & 0 & 0\% & 2 of 5 \\
+\texttt{lw} + \texttt{sw}           & 0 & 0\% & 3 of 5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+One candidate was worth two orders of magnitude more than the others, and it was also the
+cheapest to build, because the adder and comparator it needs already existed in execute.
+Everything memory-side occurs only in indexed array code and only once per iteration.
+
+The rule was then narrowed to what would actually be built. A fused pair can reference at most
+two register-file reads, because the file has two ports. Requiring the branch's \texttt{rs1} to
+be the addi's destination means the branch's other operand is the addi's result, not a third
+read, so two reads suffice. Under that restriction, 287 of the 310 pairs survive, 25.6\% of
+dynamic instructions, and 97\% of what survives is a loop-back. The predicted bound was 21.4\%
+of the suite's cycles.
+
+\subsection{Contract}
+
+The recogniser was specified before it was written: ten ports, a four-sentence behaviour
+statement, an eight-row rejection table, a timing contract, and the payload that has to ride
+with the instruction once the second word is consumed. A few decisions were made deliberately
+and written down:
+
+\begin{itemize}
+\item Invalid branch funct3 values (\texttt{010}, \texttt{011}) are rejected rather than fused
+  with a not-taken comparator. Fusing them would be harmless, but ``fused implies a real
+  branch'' is a one-line invariant for the testbench.
+\item An \texttt{addi} whose destination is \texttt{x0} is rejected. Correct to fuse, pointless:
+  nothing is written and the compare would be against zero.
+\item The branch target is pre-computed in fetch, and \texttt{br\_imm} is carried anyway so a
+  later variant can compute it in execute without changing the interface. An unused output that
+  exists for a variant is not dead code.
+\item Both payload outputs are always driven, even when a given variant uses only one, so the
+  same testbench passes unmodified on every variant.
+\end{itemize}
+
+\subsection{v1, and what integration actually cost}
+
+The testbench came before the RTL. Twelve rows: seven rejections from the truth table and five
+acceptances, including a second base address and a pair whose source and destination registers
+differ, so that neither the PC nor the register fields could go unread without a failure.
+Against a stub with all outputs tied low, five rows failed and seven passed. A testbench that
+cannot fail is not a testbench.
+
+The recogniser itself was then about forty lines: field extraction, seven comparisons, a
+priority encoder for the payload. It passed 16 of 16. The integration is where the work was.
+
+Three defects, all in the wiring between stages:
+
+\begin{enumerate}
+\item \textbf{The payload stopped at decode.} The D/X register had no ports for the fused flag,
+  branch condition or target, so three nets were implicitly declared one bit wide. That
+  compiles. It is worse than an error: a truncated target redirects to address zero, and the
+  undriven fused flag reads as zero, which quietly disables the feature and hides the other two.
+\item \textbf{Execute had no fused term.} The check that compares the prediction against the
+  real next PC was written as ``is a branch or is a jump''. For a fused pair the opcode is the
+  addi, and neither is true, so a taken fused branch computed the right target and then never
+  acted on it.
+\item \textbf{The operand index was wrong from decode onward.} For a fused pair the second
+  operand is the branch's \texttt{rs2}, but the pipeline carried the addi's \texttt{rs2} field,
+  which for an I-type is part of the immediate. Forwarding, the load-use hazard and the
+  register-file read all used that wrong index. This one failed exactly one directed test,
+  \texttt{rv32ui-p-jal}, and took a commit trace to find: the branch compared a stale register
+  value, took the wrong direction, and redirected into the failure path.
+\end{enumerate}
+
+\subsection{Local result}
+
+With the feature enabled and everything else unchanged, 67 of 67 tests passed and the fourteen
+kernels dropped from 1339 to 1048 cycles.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+kernel & cycles, off & cycles, on & saved & flush cycles \\
+\midrule
+\texttt{sweep100} & 317 & 217 & $-100$ & 3 / 3 \\
+\texttt{sweep50}  & 167 & 117 & $-50$ & 3 / 3 \\
+\texttt{nested}   & 112 &  87 & $-25$ & 10 / 10 \\
+\texttt{smul}     & 218 & 186 & $-32$ & 5 / 5 \\
+\texttt{fib}      &  69 &  59 & $-10$ & 3 / 3 \\
+\textbf{total}    & \textbf{1339} & \textbf{1048} & $\mathbf{-291\ (-21.7\%)}$ & unchanged \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The saving is exactly one cycle per fused pair on every kernel, and the flush counts are
+identical test by test. That second observation is the check that mattered: fusion removes
+branches from the stream the predictor is measured on, so a badly wired prediction path would
+have shown up as extra flush cycles eating the gain. It did not.
+
+\subsection{Graded result: no transfer}
+
+The submission was graded. Every program was correct, and the total was 1.719\,s against
+1.713\,s without the feature: a 0.4\% regression, indistinguishable from noise.
+
+The measurement is sensitive enough to see what it was testing for. Prediction removes about
+three cycles per loop iteration and shows as 12 to 18\% on the loop-heavy programs. Fusion
+removes one instruction per pair and should have been visible at half that. It was not visible
+at all, so the pairs were not being fused.
+
+\subsection{The obvious explanation, and its refutation}
+
+The rule required the branch's \texttt{rs1} to be the addi's destination. Compiled loops often
+compare the other way round:
+
+\begin{verbatim}
+    addi x5, x5, -1
+    blt  x5, x6, loop     rs1 == rd   ->  v1 fuses
+    bge  x6, x5, loop     rs2 == rd   ->  v1 rejects
+\end{verbatim}
+
+Both are correct RISC-V and both appear in compiled code. The project's own kernels are all
+written in the first form, which is why they measure 21.7\%: they were shaped to fit the rule
+being measured. A second variant accepted both forms, with one extra bit of payload saying
+which side of the comparison the addi's result belongs on. It was a strict superset: every v1
+row of the testbench still passed.
+
+It measured 1.722\,s, against 1.713\,s for prediction alone and 1.719\,s for v1. No
+improvement, and Perf was 3\% slower.
+
+Between them, the two variants cover every adjacent \texttt{addi}+branch pair in which the
+branch tests the addi's result, in either operand position. The union still shows nothing. So
+the operand order was not the explanation, and neither variant belongs in the shipped design.
+
+Two candidate reasons remain and the measurements do not separate them: either the pattern is
+genuinely rare in compiled loops, or the grader's metric blunts it because the fusion build adds
+a second combinational instruction-memory port, which costs simulator time per cycle regardless
+of architectural cycles. The two heaviest loop programs are unchanged to the millisecond, which
+argues the cycle effect itself is small.
+
+\section{Experiment 5: early branch resolution}
+
+\subsection{The budget that pointed here}
+
+After the predictor and the rejection of fusion, the cycle budget of the kernels looked like
+this:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+category & share of cycles \\
+\midrule
+useful instructions & 86.4\% \\
+mispredict flushes (two cycles each) & 8.3\% \\
+pipeline fill and alignment & 4.2\% \\
+load-use stalls & 1.2\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Fill is irreducible in a five-stage pipeline. The mispredict cost was the largest remaining
+item, and unlike the predictor's accuracy it is a property of \emph{where} the decision is made.
+A redirect resolved in execute discards two instructions; resolved one stage earlier, in decode,
+it discards one.
+
+\subsection{Design}
+
+Conditional branches compare in D:
+
+\begin{verbatim}
+    d_npc        = d_brtaken ? d_pc + d_imm : d_pc + 4
+    mispredict_d = (d_opcode == B_TYPE) && !hazard && (fd_pred_npc != d_npc)
+\end{verbatim}
+
+Two parts of that are not obvious. The operands are still in flight when the branch reaches D, so
+D forwards from X and M. And the flush signal cannot simply be reused: today one signal clears
+both the F/D and D/X registers, which is correct when detection happens in execute because
+everything above the branch is younger. Detected in decode, the instruction in execute is
+\emph{older} and must survive. The new signal clears the F/D register only.
+
+\subsection{Three defects}
+
+\begin{enumerate}
+\item \textbf{A load in M.} The forwarding value for the memory stage has no memory-data case:
+  it selects immediate, PC+4 or ALU result. That is exactly why the existing M$\rightarrow$X
+  forwarding masks loads out and lets them reach writeback first. Resolving in D has no such
+  option, so a load's data is taken from the memory output in M. This one defect accounted for
+  seven of eight failing tests: every sub-word load and store.
+\item \textbf{\texttt{lui}, \texttt{auipc} and \texttt{jal} in X.} The execute-stage result is
+  the ALU output, but those instructions write the immediate or PC+4, selected only at
+  writeback. A branch comparing against a \texttt{lui} result read zero, which is what broke
+  \texttt{rv32ui-p-bgeu}: it compares \texttt{0x7fffffff} against a \texttt{lui}-built
+  \texttt{0x80000000}.
+\item \textbf{The execute-stage check had to be removed.} Leaving the branch opcode in the
+  execute-stage prediction check makes the X redirect win over the D redirect for the same
+  branch. The design is then correct, all 67 tests pass, and exactly zero cycles are saved.
+  This defect was introduced during bisection and cost an hour before the trace showed the
+  redirect still originating in execute.
+\end{enumerate}
+
+\subsection{Result}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+kernel & baseline & early resolution & saved \\
+\midrule
+\texttt{sweep100} & 317 & 314 & $-3$ \\
+\texttt{nested}   & 112 & 102 & $-10$ \\
+\texttt{if-in-loop}&  56 &  50 & $-6$ \\
+\texttt{smul}     & 218 & 213 & $-5$ \\
+\texttt{fib}      &  69 &  66 & $-3$ \\
+\textbf{total}    & \textbf{1339} & \textbf{1288} & $\mathbf{-51\ (-3.8\%)}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Exactly one cycle per mispredict: \texttt{nested} saves ten for its ten, the loop kernels save
+three each, which is entry, exit and the cold first iteration. 67 of 67 pass.
+
+On the graded suite the same build returned 1.677\,s against 1.713\,s for prediction alone,
+$-2.1\%$, with eight programs faster, three unchanged and none slower. The three that did not
+move are the ones with almost no mispredicts to make cheaper.
+
+\subsection{v2: two more items from the same budget}
+
+The stall line in the budget was small on the kernels but suspicious. It was caused by the same
+omission that produced the first defect above: the M$\rightarrow$X forwarding refused loads
+because the forwarded value had no memory-data case. Supplying the memory output directly
+removes the stall altogether. The hazard now fires only where the operand must be consumed in
+decode, which is a branch or a \texttt{jalr} comparison.
+
+\texttt{jalr} also moved into decode. Its target is \texttt{rs1} plus the immediate, both
+available there, and because the new flush clears only the F/D register the \texttt{jalr}
+continues into execute and still writes its link register. A resolved bit rides along to
+execute so that the second check does not redirect it again, which would cancel the gain.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+kernel & v1 & + load-use & + jalr & why \\
+\midrule
+\texttt{array-idx} & 88 & \textbf{80} & 80 & 8 stalls were 9\% of its cycles \\
+\texttt{sum-array} & 48 & \textbf{44} & 44 & 4 stalls were 8\% \\
+\texttt{callret}   & 34 & 34 & \textbf{33} & its one \texttt{jalr} miss \\
+\textbf{total}     & \textbf{1288} & 1276 & \textbf{1275} & $-1.0\%$ against v1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The stall counter is zero on every test in the suite afterwards. Against the original baseline
+this build is 1339 to 1275 cycles, $-4.8\%$.
+
+\subsection{Graded result, and a six-fold surprise}
+
+\begin{center}
+\begin{tabular}{lrrrc}
+\toprule
+graded program & October & + prediction & + early resolution & + load-use and \texttt{jalr} \\
+\midrule
+Perf        & 0.587 & 0.499 & 0.487 & \textbf{0.453} \\
+Fibonacci   & 0.586 & 0.499 & 0.489 & \textbf{0.474} \\
+Bubble sort & 0.248 & 0.236 & 0.231 & \textbf{0.196} \\
+Factorial   & 0.147 & 0.127 & 0.123 & \textbf{0.113} \\
+GCD         & 0.084 & 0.069 & 0.068 & \textbf{0.065} \\
+Sum array   & 0.057 & 0.054 & 0.052 & \textbf{0.045} \\
+Check vowel & 0.183 & 0.174 & 0.173 & 0.175 \\
+Swap        & 0.016 & 0.016 & 0.015 & 0.014 \\
+Swap shift  & 0.017 & 0.016 & 0.016 & 0.015 \\
+Simple if   & 0.013 & 0.012 & 0.012 & 0.012 \\
+Simple add  & 0.012 & 0.011 & 0.011 & 0.011 \\
+\midrule
+\textbf{total (s)} & \textbf{1.950} & \textbf{1.713} & \textbf{1.677} & \textbf{1.573} \\
+vs October  & -- & $-12.2\%$ & $-14.0\%$ & $\mathbf{-19.3\%}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All eleven programs correct. Between the two early-resolution builds, eight are faster, two
+unchanged and one is two milliseconds slower, which is the grader's quantum rather than a
+regression.
+
+The expensive part of v2 was worth 1.0\% on the project's own kernels and 6.2\% on the graded
+programs. The mechanism is the same in both cases, one cycle per load-use pair, so the
+difference is the workload: the hand-written kernels are arithmetic loops with a handful of
+loads, while bubble sort and sum array spend their inner loops loading array elements. Those two
+move by 15.2\% and 13.5\%.
+
+\section{What the five experiments add up to}
+
+\begin{center}
+\begin{tabular}{llrr}
+\toprule
+change & mechanism & graded effect & local effect \\
+\midrule
+pre-decoder + BHT/BTB & remove mispredicts & $-12.2\%$ & about $-20\%$ \\
+macro-op fusion v1    & remove instructions & $+0.4\%$ & $-21.7\%$ \\
+macro-op fusion v2    & remove instructions & $+0.5\%$ & $-22.7\%$ \\
+early resolution      & make mispredicts cheaper & $-2.1\%$ & $-3.8\%$ \\
+load-use and \texttt{jalr} & remove stall cycles & $\mathbf{-6.2\%}$ & $-1.0\%$ \\
+\midrule
+cumulative & & $\mathbf{-19.3\%}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two features were measured and rejected, two measured and kept. The table also carries the most
+transferable lesson of the project.
+
+The local suite overstated fusion by roughly fifty times. It understated the load-use work by a
+factor of 1.3. A hand-written kernel suite can be wrong in both directions, and the only way to
+know which is to measure on the workload that is actually scored. That is not a reason to skip
+the local suite: the sweep family, the fusion census and the 21.4\% bound are what made the
+fusion experiment cheap to run and its failure interpretable. It is a reason to treat the
+autograder as part of the experiment loop rather than as a final check.
+
+\section{Engineering notes}
+
+A few things cost more time than the RTL did, and are worth writing down.
+
+\paragraph{A regression that was correct but saved nothing.} Leaving the branch opcode in the
+execute-stage prediction check makes both mechanisms redirect the same branch, with execute
+winning. Every test passed. The cycle count was identical to the baseline. Any check that only
+looks at pass/fail would have concluded the feature did not help, when in fact the feature was
+not running.
+
+\paragraph{Three false greens.} A unit testbench that counted its rows in a second
+\texttt{initial} block could sample zero rows and report success; the fix is to count at the end
+of the block that fills the table, with a guard that aborts on an empty table. A test that
+placed its failure label immediately after \texttt{ecall} had it execute during the five-cycle
+drain window and overwrite the pass flag, so a correct design reported failure. And verifying a
+submission zip by extracting it and running the suite silently reused the build artefacts that
+came with it, testing the old binary; the fix is to delete the build directory first.
+
+\paragraph{Counters that lie.} The squashed-instruction counter falls from 52 to 1 when branches
+resolve in decode. That is not a 50-fold improvement. The counter appears to count execute-stage
+flushes, and a decode-stage flush clears one register. Cycles are the metric; the counter is
+context.
+
+\paragraph{The wrong debugging tool.} A differential PC trace found the fusion integration bug
+by showing where two builds diverged. The same method is useless for early resolution, because
+that change deliberately reduces how many instructions are fetched speculatively, so the PC
+sequences differ for correct reasons. Comparing architectural writebacks instead finds the first
+wrong value directly and found all three bring-up defects.
+
+\paragraph{Two mechanisms, one redirect.} Both redirect paths must be gated by the same feature
+mask, or one quietly overrides the other. This is worth a comment in the RTL, and it is why the
+execute-stage check now names the reason it excludes branches.
+
+\section{Current state}
+
+The suite is 67 tests plus one long-standing failure in \texttt{sample-bmarks/default}, which has
+failed since 2026-09-23 and is unaffected by any of this work. All 67 pass on the shipped
+configuration.
+
+The shipped configuration is: pre-decoder, BHT with tags and a valid bit, BTB, early branch
+resolution, load-use forwarding and \texttt{jalr} resolution in decode. Fusion is present in the
+tree behind \texttt{FUSE\_ENABLE = 1'b0} and is inert; keeping it costs nothing at runtime and
+lets the measurement be repeated.
+
+Not measured: area and critical path. Synthesis requires the department machines. The synthesis
+script has been changed to blackbox the instruction memory, because elaborating the array turns
+it into tens of thousands of flip-flops whose read path dominates the critical path, which is
+what an earlier attempt measured. A clock-period sweep script is in place so that the maximum
+frequency can be bracketed in one run rather than one run per constraint. Until that is done,
+the time figures in this report are cycle counts, and the wall-clock gains assume the clock did
+not get slower.
+
+The next candidate for the remaining mispredict cost is a return-address stack. The
+\texttt{callret} benchmark exists for exactly that measurement and has never been used as one.
+
+\appendix
+\section{Benchmark kernels}
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+kernel & shape & self-check \\
+\midrule
+\texttt{smoke}     & two instructions & flow only \\
+\texttt{sweep4/10/25/50/100} & counted loop, one branch, five trip counts & iterations $= N$ \\
+\texttt{loop10}    & counted loop with accumulation & $1+\cdots+10 = 55$ \\
+\texttt{nested}    & 5 outer, 4 inner & sum $= 30$ \\
+\texttt{if-in-loop}& hot loop, one fall-through & marker $= 1$ \\
+\texttt{sum-array} & store/load loop over four words & total $= 10$ \\
+\texttt{array-idx} & \texttt{s += a[i]} with a scaled index & total $= 36$ \\
+\texttt{fib}       & iterative Fibonacci & $\mathrm{fib}(11) = 89$ \\
+\texttt{smul}      & shift-and-add multiply, 32 iterations & $6 \times 7 = 42$ \\
+\texttt{callret}   & three calls and three returns & $3 \times 5 = 15$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Reproducing}
+
+\begin{verbatim}
+    make sim-all -C verif/               # 67 tests, every directory
+    make bench-build -C verif/           # assemble every benchmark source
+    make tb-pre_decode_tb -C verif/      # unit testbench, 27 rows
+    make tb-fuse_detect_tb -C verif/     # unit testbench, 16 rows
+    python3 code/benchmarks/fusion_analysis.py
+    python3 code/benchmarks/objdump_analysis.py <listing.objdump>
+\end{verbatim}
+
+Every measurement in this report is a full \texttt{make sim-all} on the branch named in the
+corresponding experiment section, with the feature mask stated. The submission zips named in
+sections 4 and 5 are kept alongside the sources.
+
+\end{document}

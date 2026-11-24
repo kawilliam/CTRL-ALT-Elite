@@ -1,0 +1,465 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+
+\title{Benchmark Infrastructure for the CTRL-ALT-ELITE RV32I Core\\
+\large An assembler, a representative workload suite, and what they validate}
+\author{CTRL-ALT-ELITE}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The project's CPI work had no workload that could exercise a branch predictor: the
+directed instruction tests execute each branch approximately once, so a 2-bit counter
+never has a second execution to predict. The graded autograder binaries are unavailable
+as source, so the only way to obtain a loop-dominated workload was to build one.
+This document describes the infrastructure that was created --- a minimal RV32I
+assembler and a self-checking benchmark suite of thirteen programs --- the conventions the
+harness imposes on such programs, and the first measurements it produced. With the
+branch history table enabled, a ten-iteration counted loop retires in 47 cycles instead
+of 59 ($-20\%$) and an iterative Fibonacci loop in 69 instead of 81 ($-15\%$).
+\end{abstract}
+
+\section{Purpose and scope}
+
+Two problems motivated this work.
+
+\textbf{No measurable workload.} Every CPI result before this point was measured on
+directed instruction tests. Those tests are excellent at proving functional correctness
+--- 53 of them pass, and they caught real regressions --- but they are the wrong shape
+for evaluating a branch predictor. A predictor needs a branch that executes repeatedly
+so that its counter can be trained and then trusted. In the directed suite almost every
+branch executes once, so the best a predictor can do is neither help nor hurt. The
+branch history table was therefore implemented, corrected, and still \emph{unproven}:
+no test in the suite could demonstrate a benefit.
+
+\textbf{No access to the graded binaries.} The autograder reports pass/fail per program
+(bubble sort, factorial, GCD, Fibonacci, sum array, and others) but does not provide
+sources or binaries. Their instruction mix can be inferred --- under RV32I with no
+multiplier or divider, factorial and GCD must contain libgcc-style shift-and-add and
+shift-and-subtract loops --- but they cannot be disassembled, counted, or run locally.
+
+The response is a set of \emph{representative} workloads: programs of the same
+algorithmic shape as the graded ones, owned by the project, that can be built, modified
+and measured freely. They are not the graded programs, and no result measured on them
+should be quoted as a grade. What transfers is the mechanism, not the absolute number.
+
+\section{Deliverables at a glance}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Component & Purpose \\
+\hline
+\texttt{code/benchmarks/rvasm.py} & Minimal RV32I assembler: source to \texttt{.x} image \\
+\texttt{code/benchmarks/} & Thirteen workloads, their images and the assembler \\
+\texttt{make bench-build} & Assembles every benchmark source in one command \\
+\texttt{benchmarks/README.md} & Conventions a new benchmark must obey \\
+\hline
+\end{tabular}
+\end{center}
+
+The suite integrates with the existing harness without changes to any testbench:
+\texttt{make sim-all} sweeps the new directory along with the others, and the total
+grew from 53 to 66 tests with zero failures.
+
+\section{The assembler}
+
+\subsection{Why an assembler rather than hand encoding}
+
+The existing directed tests were written as assembly and then encoded by hand; their
+hex images are checked in beside their sources. Hand encoding is a genuine source of
+error. During this project a helper function that builds a \texttt{jal} placed
+\texttt{imm[11]} at instruction bit 10 instead of bit 20 --- a single-character mistake
+that corrupted the destination register field as well, and that no amount of reading the
+source would have revealed.
+
+An assembler makes the source of truth the mnemonic, and makes the encoding testable:
+the same instruction that a hand-encoded image got wrong will be assembled correctly and
+the difference will appear immediately.
+
+\subsection{Syntax and conventions}
+
+The assembler accepts one instruction per line, with labels, \texttt{\#} or
+\texttt{//} comments, and both \texttt{off(reg)} and \texttt{reg,reg,imm} operand forms.
+Two conventions match the existing tests and are worth stating explicitly because they
+are inconsistent with each other:
+
+\begin{itemize}
+\item \textbf{Immediates are decimal}: \texttt{addi x3,x0,30} loads thirty.
+\item \textbf{Branch and jump targets are hexadecimal addresses}: 
+      \texttt{beq x1,x3,1000014} targets \texttt{0x1000014}. Labels are also accepted
+      and preferred in new code.
+\end{itemize}
+
+\subsection{Validation}
+
+The assembler is validated by reproduction rather than by inspection: it is run over
+all thirteen hand-written \texttt{pipeline\_tests} sources and its output is compared
+against the checked-in images. \textbf{All thirteen are reproduced byte for byte.} That
+covers the entire instruction subset those tests use and is the strongest available
+evidence that the encoder is correct; any error in a field would show as a diff.
+
+\section{The benchmark suite}
+
+\subsection{Requirements}
+
+Every benchmark was written to satisfy four conditions:
+
+\begin{enumerate}
+\item \textbf{Self-checking.} The program computes an expected value, compares it, and
+      leaves \texttt{x1 = 1} only if it matches. A wrong answer fails the test rather
+      than passing quietly.
+\item \textbf{Loop-dominated or load-dominated.} The shape must stress what is being
+      measured: backward branches for the predictor, load-use pairs for the hazard
+      logic.
+\item \textbf{Buildable from source.} The \texttt{.txt} is committed with the
+      \texttt{.x}, so the workload can be modified and rebuilt.
+\item \textbf{Correct under the existing harness.} No testbench changes were required.
+\end{enumerate}
+
+\subsection{The workloads}
+
+\begin{center}
+\begin{tabular}{llll}
+\hline
+Test & Size & Shape & Self-check \\
+\hline
+\texttt{smoke} & 2 words & two instructions & flow sanity only \\
+\texttt{loop10} & 16 words & counted loop, 10 iterations & sum $1..10 = 55$ \\
+\texttt{sum-array} & 28 words & store/load loop over 4 words & total $= 10$ \\
+\texttt{fib} & 20 words & iterative Fibonacci, 10 iterations & fib$(11) = 89$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{smoke} exists to separate harness failures from program failures: if a
+two-instruction program does not pass, the problem is the flow, not the benchmark.
+\texttt{loop10} is the predictor workload, with nine taken backward branches.
+\texttt{sum-array} exercises stores, loads, a load-use dependency and a loop, and is the
+one benchmark that records non-zero stalls. \texttt{fib} is a dependency chain with a
+register-register add feeding the next iteration.
+
+\subsection{What each benchmark does, and how it was built to test}
+
+Each program is written in assembly and assembled by \texttt{rvasm.py}; the source is
+committed beside the image it produces. The descriptions below give the instruction-level
+behaviour, the mechanism the shape was chosen to exercise, and --- where it is informative
+--- the flush signature the measurement should reproduce, which is a way of checking that
+a benchmark is measuring what it claims to.
+
+\paragraph{smoke (2 words).} Executes \texttt{addi x1,x0,1}, then \texttt{ecall}.
+Built as the smallest program that satisfies the harness contract --- pass register and
+terminator --- and nothing else. Its job is diagnosis rather than measurement: if it fails,
+the problem is the flow (the image, the loader, the testbench), not a benchmark. Correct
+result: six cycles, no stalls, no flushes.
+
+\paragraph{sweep4/10/25/50/100.} Counts down from $N$ while incrementing an iteration
+counter, then verifies the counter equals $N$.
+All five images are the same program with one immediate changed, so trip count is the only
+variable between them. The loop body contains exactly one branch, the loop-back, so the
+dynamic branch stream is periodic with period one: there is nothing else for the predictor
+to train or to pollute. That makes the family a controlled experiment on warm-up alone.
+The flush signature is a strong check on the whole flow. The loop-back is taken $N-1$
+times, so without prediction there must be $N-1$ flush cycles --- 3, 9, 24, 49 and 99 for
+the five images --- and with prediction enabled the count must be a constant 3 (two warm-up
+mispredicts plus one loop exit) independent of $N$. Both are exactly what is measured.
+
+\paragraph{loop10.} Accumulates $1+2+\dots+10$ and verifies 55.
+It shares the loop structure and the instruction count of \texttt{sweep10} --- hence the
+identical 47 cycles --- but its body performs an arithmetic accumulation, so the forwarding
+path and the ALU are exercised while the same branch stream is measured. It is the only
+single-loop benchmark with both a data result and a timing result.
+
+\paragraph{nested.} Five outer iterations, each running a four-iteration inner loop, with
+the inner index accumulated; verifies 30.
+Built to expose what a single loop cannot: the inner branch is taken four times and then
+falls through once per outer iteration, while its counter is still in the taken state, so
+every inner-loop exit is a guaranteed mispredict. The two branches also occupy different
+table entries and must remain correct simultaneously.
+Signature: $5\times3+4=19$ taken branches, so 19 flush cycles without prediction and 10
+with --- the 10 being five inner exits, one outer exit and four warm-up mispredicts.
+Measured: 19 and 10.
+
+\paragraph{if-in-loop.} A ten-iteration loop containing a forward branch that is taken on
+nine iterations and falls through on the seventh, setting a marker that is checked
+afterwards.
+This tests the opposite failure from \texttt{nested}: not a branch that exits a loop, but a
+rarely taken path inside one. If the hot direction is learned correctly the cost is a
+single mispredict; if the cold fall-through is learned as taken, the cost is two cycles on
+every iteration. The body also carries two branches per iteration, so both must be held in
+the table at once.
+Signature: $9+9=18$ taken branches, so 18 flush cycles without prediction and 6 with
+(four warm-up, one rare fall-through, one loop exit). Measured: 18 and 6.
+
+\paragraph{sum-array.} Stores the values 1--4 into four words at \texttt{0x1000}, then
+loops four times loading and accumulating them; verifies the total of 10.
+The load is immediately followed by the instruction that consumes it, so each iteration
+contains a load-use pair and must stall once. It is the only benchmark that stores, and the
+only one that touches the data path at a non-zero address --- built with \texttt{lui},
+because the data port is not base-relative.
+Signature: four stalls, exactly one per load-use pair, and three flush cycles. The loop is
+too short for prediction to change either, which is itself the expected result. Measured:
+four stalls and three flushes in both configurations.
+
+\paragraph{fib.} Ten iterations of $a\leftarrow b$, $b\leftarrow a+b$; verifies 89.
+The body is a pure register dependency chain with no memory traffic, so any lost cycle
+would have to come from the pipeline itself rather than from the data path. Its body is
+five instructions against \texttt{sweep}'s three, which halves the branch density and is
+why the same ten iterations cost 69 cycles instead of 47.
+Signature: nine taken branches, so nine flush cycles without prediction and three with.
+Measured: 9 and 3.
+
+\paragraph{smul.} A shift-and-add multiply of $6\times 7$ over a 32-iteration loop: test
+the multiplier's low bit, conditionally add the multiplicand, shift both operands, decrement
+the bit counter. Verifies 42.
+This reproduces the shape libgcc multiplication takes on an RV32I core without the M
+extension, and therefore the shape the graded \emph{factorial} and \emph{GCD} programs
+contain. It is also the only benchmark whose inner branch is genuinely \emph{data
+dependent}, which makes it the only one where prediction cannot in principle remove every
+mispredict. In practice the multiplier (7) shifts to zero after three iterations, after
+which that branch becomes constant and is learned --- which is why the gain is large rather
+than partial.
+Signature: 31 taken loop-backs plus 29 taken bit-tests, so 60 flush cycles without
+prediction and 5 with. Measured: 60 and 5.
+
+\paragraph{callret.} Three calls to a five-instruction subroutine and three returns, using
+\texttt{jal x1} and \texttt{jalr x0,0(x1)}; verifies 15.
+The pair is the canonical call and return: \texttt{rd = x1} drives the pre-decoder's call
+classification and \texttt{rs1 = x1} drives its return classification, so this is the
+workload on which a return-address stack would be measured. The subroutine is placed before
+the entry code and jumped over, and \texttt{x2} is cleared at entry to defeat the harness's
+end-of-program detector, which otherwise fires on the first return.
+Signature: the loop-back runs only twice when taken, so two warm-up mispredicts are spent to
+save one --- which is why this is the one benchmark where the predictor is a net cost.
+Measured: three flush cycles without prediction, four with.
+
+\section{Harness conventions a benchmark must obey}
+
+Building the suite exposed three conventions that were undocumented and that each cost
+a debugging cycle. They are now recorded in the README.
+
+\paragraph{The pass register differs by testbench.} \texttt{top\_tb.sv}, which runs
+\texttt{pipeline\_tests}, \texttt{sample-bmarks} and the new suite, passes on
+\texttt{x1 = 1}. \texttt{rv\_official\_tb.sv}, which runs \texttt{insn-bmarks}, passes
+on \texttt{x3 = 1}. A benchmark written for one convention silently fails under the
+other.
+
+\paragraph{ecall must be the last executed instruction.} The testbench observes
+\texttt{ecall} when it is fetched, waits approximately five cycles, and then samples the
+register file. Anything placed after the \texttt{ecall} retires during that window. The
+first version of every benchmark put its \texttt{fail} label immediately after the
+\texttt{ecall}; the failing path then executed during the drain and overwrote the pass
+register, so a program that computed perfectly correct values reported failure. The
+last executed instruction must be \texttt{ecall}, followed only by \texttt{nop}s ---
+which is why the pre-existing tests end with four of them.
+
+\paragraph{The data port does not subtract the program base.} Instruction fetch is
+relative to \texttt{BASE\_ADDR}, data access is not. A data address must therefore be
+small (for example \texttt{0x1000}, built with \texttt{lui x2,1}) rather than
+base-relative.
+
+\section{Measurements}
+
+\subsection{Method}
+
+The simulation is deterministic: identical RTL and an identical program image produce
+identical cycle counts, exactly. Every difference reported below is therefore
+attributable to the change, and none of it is run-to-run noise.
+
+The comparison is a feature mask on a single build: the branch history table is disabled
+by forcing its prediction output to zero, everything else is unchanged, and the full
+57-test suite is run in both configurations. Both configurations pass all 57 tests, so
+the measurement isolates performance and not correctness.
+
+\subsection{Results}
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\hline
+ & \multicolumn{2}{c}{BHT enabled} & \multicolumn{2}{c}{BHT disabled} & \\
+Test & Cycles & Flushes & Cycles & Flushes & Change \\
+\hline
+\texttt{smoke}     &  6 & 0 &  6 & 0 &  0 \\
+\texttt{loop10}    & 47 & 3 & 59 & 9 & $-12$ \; $(-20.3\%)$ \\
+\texttt{sum-array} & 51 & 3 & 51 & 3 &  0 \\
+\texttt{fib}       & 69 & 3 & 81 & 9 & $-12$ \; $(-14.8\%)$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Interpretation}
+
+The flush counts are exactly what a two-bit predictor with a cold seed predicts, which
+is the point: the benefit is not a mysterious speedup but accounted for branch by branch.
+
+\begin{center}
+\begin{tabular}{llll}
+\hline
+Iteration & Entry state & Prediction & Result \\
+\hline
+1 & empty & none & mispredict (cold) \\
+2 & \texttt{WEAK\_NT} & not taken & mispredict (first training) \\
+3--9 & \texttt{WEAK\_T} / \texttt{STRONG\_T} & taken & correct \\
+10 (exit) & \texttt{STRONG\_T} & taken & mispredict (loop exit) \\
+\hline
+\end{tabular}
+\end{center}
+
+Three mispredicts for \texttt{loop10} against nine taken branches without a predictor.
+At two cycles per mispredict, that is the twelve cycles observed.
+
+\texttt{sum-array} is unchanged, and the reason is instructive: its loop body executes
+only four times, so there are three taken backward branches in total. The predictor
+spends two of them training and can only help with the third, so the saving is within
+the cost of the two warm-up mispredicts. \textbf{A short loop cannot repay a predictor's
+warm-up.} This is consistent with the earlier finding that the directed instruction
+tests show no benefit at all, and it is the reason the graded workloads --- which iterate
+far more than ten times --- should show a larger relative gain than these proxies do.
+
+\section{Threats to validity}
+
+\begin{itemize}
+\item \textbf{These are not the graded programs.} They share algorithmic shape, not
+      instruction sequences. Absolute cycle counts and CPI do not transfer; the
+      mechanism and the direction do.
+\item \textbf{Loop trip counts are small.} Ten iterations makes the warm-up a large
+      fraction of the total. Longer loops amortise it and will show a better ratio.
+\item \textbf{One predictor configuration.} These results characterise a 64-entry,
+      8-bit-tagged table with a two-bit counter. A different size or a different
+      replacement policy would shift the absolute numbers.
+\item \textbf{CPI is comparable here but not universally.} Both configurations retire
+      the same instruction count, so CPI is a valid comparison across them. CPI is
+      \emph{not} comparable across benchmarks, and would not be comparable across any
+      change that alters the dynamic instruction count, such as instruction fusion.
+\end{itemize}
+
+\section{Reproducing}
+
+\begin{verbatim}
+  make bench-build -C verif/        # assemble every benchmark source
+  make sim-all -C verif/            # 57 tests, sweeps every directory
+  make run -C verif/ TEST_DIR=benchmarks TEST=loop10
+\end{verbatim}
+
+To reproduce the control measurement, force \texttt{taken\_o} to zero in
+\texttt{code/bht.sv}, run \texttt{make sim-all}, and compare the benchmark rows.
+
+\appendix
+\section{Instruction subset supported by the assembler}
+
+\texttt{nop}, \texttt{ecall}, \texttt{add}, \texttt{sub}, \texttt{and}, \texttt{or},
+\texttt{xor}, \texttt{sll}, \texttt{srl}, \texttt{sra}, \texttt{slt}, \texttt{sltu},
+\texttt{addi}, \texttt{andi}, \texttt{ori}, \texttt{xori}, \texttt{slli},
+\texttt{srli}, \texttt{srai}, \texttt{slti}, \texttt{sltiu}, \texttt{lw},
+\texttt{sw}, \texttt{lui}, \texttt{auipc}, \texttt{jal}, \texttt{jalr},
+\texttt{beq}, \texttt{bne}, \texttt{blt}, \texttt{bge}, \texttt{bltu},
+\texttt{bgeu}.
+
+Registers may be written numerically (\texttt{x0}--\texttt{x31}) or by ABI name
+(\texttt{zero}, \texttt{ra}, \texttt{sp}, \texttt{a0}--\texttt{a7}, \texttt{t0}--\texttt{t6},
+\texttt{s0}--\texttt{s11}).
+
+
+\section{Addendum: extended suite, trip-count sweep, and the cost of prediction}
+
+After the first version of this document, five further workloads and a trip-count sweep
+were added. The suite now contains thirteen benchmark programs and the full regression
+runs 66 tests, all passing.
+
+\subsection{What was added}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Test & Shape & Self-check \\
+\hline
+\texttt{sweep4/10/25/50/100} & counted loop, one branch, $N$ iterations & iterations $=N$ \\
+\texttt{nested} & 5 outer $\times$ 4 inner & sum $=30$ \\
+\texttt{if-in-loop} & hot loop, one fall-through on iteration 7 & marker $=1$ \\
+\texttt{smul} & shift-and-add multiply, 32 iterations & $6\times 7 = 42$ \\
+\texttt{callret} & 3 calls and 3 returns & $3\times 5 = 15$ \\
+\hline
+\end{tabular}
+\end{center}
+
+Rationale, in descending order of value: the sweep converts a single data point into a
+scaling law; \texttt{nested} exposes inner-loop exits, which mispredict once per outer
+iteration and which no single loop can reveal; \texttt{if-in-loop} checks that a rarely
+taken path inside a hot loop is not learned as always taken; \texttt{smul} is the shape
+libgcc multiplication takes on RV32I without the M extension, and is therefore the shape
+the graded \emph{factorial} and \emph{GCD} programs contain; \texttt{callret} is the only
+workload that exercises a return-address stack.
+
+\subsection{Results}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\hline
+Test & BHT on & BHT off & Saved \\
+\hline
+\texttt{sweep4}     &  29 &  29 & 0 \\
+\texttt{sweep10}    &  47 &  59 & $+12$ (20.3\%) \\
+\texttt{sweep25}    &  92 & 134 & $+42$ (31.3\%) \\
+\texttt{sweep50}    & 167 & 259 & $+92$ (35.5\%) \\
+\texttt{sweep100}   & 317 & 509 & $+192$ (37.7\%) \\
+\texttt{smul}       & 218 & 328 & $+110$ (33.5\%) \\
+\texttt{nested}     & 112 & 130 & $+18$ (13.8\%) \\
+\texttt{if-in-loop} &  56 &  80 & $+24$ (30.0\%) \\
+\texttt{fib}        &  69 &  81 & $+12$ (14.8\%) \\
+\texttt{sum-array}  &  51 &  51 & 0 \\
+\texttt{callret}    &  37 &  35 & $-2$ ($-5.7\%$) \\
+\hline
+\end{tabular}
+\end{center}
+
+All thirteen benchmarks pass in both configurations, so the comparison again isolates
+performance from correctness rather than mixing the two.
+
+\subsection{The scaling law}
+
+Saved cycles per loop iteration: 1.20 at $N=10$, 1.68 at $N=25$, 1.84 at $N=50$ and 1.92
+at $N=100$. The sequence approaches two cycles per iteration, which is exactly one
+avoided redirect: the predictor reaches the point where it removes the mispredict on
+every steady-state iteration.
+
+This is the number that extrapolates. The graded benchmarks iterate far more than one
+hundred times, so the figure that applies to them is the asymptote of roughly 38\%, not
+the 20\% measured on a ten-iteration loop. The same arithmetic explains why
+\texttt{sweep4} and \texttt{sum-array} show nothing: two warm-up mispredicts cost four
+cycles, and a four-iteration loop never runs long enough to earn them back.
+
+\subsection{The cost of prediction}
+
+\texttt{callret} is the one benchmark that becomes \emph{slower} with prediction enabled,
+by two cycles. Its loop-back branch executes only three times, so the cold entry costs
+the same two mispredicts a four-iteration loop does, while the only branch it can then
+predict correctly is the third. For very short loops a cold predictor is a net loss.
+
+That is a property of the design rather than a defect, and it should be reported as such:
+the predictor maximises steady-state throughput at a small fixed cost per cold branch.
+Alternative seeding policies trade that cost for spurious taken predictions elsewhere ---
+seeding new entries as taken was measured during development and made the branch tests
+worse by fifteen redirects --- so the cold seed is the conservative choice, not an
+accident.
+
+\subsection{Two harness traps characterised while building this}
+\enlargethispage{5\baselineskip}
+
+\paragraph{A fetched return ends the simulation early.} \texttt{top\_tb.sv}
+treats a fetched \texttt{0x00008067} (\texttt{jalr x0,0(x1)}) as ``program finished''
+when \texttt{x2} equals \texttt{BASE + MEM\_DEPTH} --- and the register file \emph{resets}
+\texttt{x2} to precisely that value. Any benchmark containing a canonical return therefore
+terminates early and is graded against \texttt{x15} instead of \texttt{x1}. \texttt{callret}
+clears \texttt{x2} at entry to defuse the check; without that, the return-address-stack
+workload cannot be expressed at all.
+
+\paragraph{The ecall drain window will overwrite a pass register.} The testbench samples
+the register file about five cycles after \texttt{ecall} is fetched. An instruction placed
+after the \texttt{ecall} --- a \texttt{fail} block, for instance --- retires inside that
+window and can clear the pass marker. Every benchmark now ends with a single \texttt{ecall}
+followed only by \texttt{nop}s. This was rediscovered the hard way even though it was
+already documented in the suite README, which is the argument for writing it down.
+
+\end{document}

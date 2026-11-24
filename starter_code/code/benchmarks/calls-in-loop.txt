@@ -1,0 +1,31 @@
+# calls-in-loop -- twenty calls and twenty returns from TWO different call
+# sites into the same subroutine.
+#
+# The second call site is the point. With one call site the BTB predicts the
+# return perfectly, because the return instruction always returns to the same
+# place. With two, that single BTB entry alternates between two targets and
+# mispredicts roughly half the time, which is the situation a return-address
+# stack exists to fix. callret (three calls, one site) cannot show either.
+        addi x2, x0, 0           # clear sp: top_tb treats a fetched ret as
+                                 # program end when sp == BASE+MEM_DEPTH
+        addi x5, x0, 0           # i
+        addi x6, x0, 20          # n
+        addi x8, x0, 0           # accumulator
+loop:   addi x5, x5, 1
+        andi x9, x5, 1           # odd iterations call from B, even from A
+        bne  x9, x0, callb
+        jal  x1, sub             # call site A
+        jal  x0, after
+callb:  jal  x1, sub             # call site B
+after:  blt  x5, x6, loop
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 100         # 20 calls x 5
+        bne  x8, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop
+sub:    addi x8, x8, 5
+        jalr x0, 0(x1)

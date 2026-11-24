@@ -1,0 +1,37 @@
+# array-swap-loop -- bubble sort's shape: nested loops, two loads per iteration,
+# a data-dependent branch, and conditional stores. Written to be the closest
+# kernel to a compiled array program.
+        lui  x2, 1               # x2 = 0x1000
+        addi x5, x0, 4
+        sw   x5, 0(x2)
+        addi x5, x0, 3
+        sw   x5, 4(x2)
+        addi x5, x0, 2
+        sw   x5, 8(x2)
+        addi x5, x0, 1
+        sw   x5, 12(x2)
+        addi x8, x0, 0           # pass
+        addi x6, x0, 3           # passes
+pass:   addi x9, x0, 0           # i
+        addi x10, x0, 3          # limit
+inner:  slli x11, x9, 2
+        add  x12, x2, x11
+        lw   x13, 0(x12)         # a[i]
+        lw   x14, 4(x12)         # a[i+1]
+        bge  x14, x13, noswap
+        sw   x14, 0(x12)
+        sw   x13, 4(x12)
+noswap: addi x9, x9, 1
+        blt  x9, x10, inner
+        addi x8, x8, 1
+        blt  x8, x6, pass
+        lw   x15, 0(x2)          # sorted array starts with 1
+        addi x1, x0, 0           # default: fail
+        addi x7, x0, 1
+        bne  x15, x7, done
+        addi x1, x0, 1           # pass
+done:   ecall
+        nop
+        nop
+        nop
+        nop

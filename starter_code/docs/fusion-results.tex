@@ -1,0 +1,535 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\title{Macro-op Fusion in the CTRL-ALT-ELITE RV32I Core\\\large Measured performance change of the v1 \texttt{addi}+\texttt{branch} fusion}
+\author{CTRL-ALT-ELITE}
+\date{23 November 2026}
+\begin{document}
+\maketitle
+\begin{abstract}
+The v1 macro-op fusion recogniser packs an \texttt{addi} and the conditional branch that
+tests its result into a single pipeline slot. Measured across fourteen benchmark kernels on
+one build with the feature masked on and off, total cycles fall from \textbf{1339 to 1048},
+a reduction of \textbf{291 cycles (21.7\%)}. The saving is exactly the number of fused
+pairs, the non-issue overhead of the pipeline is unchanged to within rounding, and every
+test passes in both configurations. The pre-RTL gate predicted 21.4\%; the measurement
+delivers 21.7\%. On the graded programs, however, the feature returns nothing --- and the
+epilogue records the optimisation that replaced it and does return a gain.
+\end{abstract}
+
+\section{The feature}
+
+A counted loop ends with the same two-instruction idiom every iteration: the loop counter is
+decremented by an \texttt{addi}, and a conditional branch tests it.
+
+\begin{verbatim}
+    addi x5, x5, -1        decrement
+    bne  x5, x0, loop      test the result
+\end{verbatim}
+
+\texttt{fuse\_detect} recognises this pair in the fetch stage -- \texttt{addi} immediately
+followed by a conditional branch whose \texttt{rs1} is the register the \texttt{addi}
+writes -- and consumes it as \emph{one} slot: the PC advances by 8 instead of 4, the branch
+word never enters the pipeline, and its condition, compared register and target ride along
+with the \texttt{addi} as payload. Execute computes the increment on the existing adder and
+tests it on the existing comparator.
+
+The recogniser never sees a register \emph{value}, so it makes a packing decision only; the
+branch outcome is still decided in execute. The feature is masked by a compile-time constant,
+\texttt{FUSE\_ENABLE}, so both configurations below are the same source with one character
+changed and nothing else.
+
+\section{Measurement method}
+
+Simulation is deterministic: identical RTL and identical images produce identical cycle
+counts. The two columns below are therefore the same machine, differing only in whether the
+recogniser's verdict is allowed to reach the datapath. No cycle difference can be attributed
+to anything but the feature.
+
+The full regression is 67 tests plus one long-standing known failure
+(\texttt{sample-bmarks/default}, failing since 2026-09-23 and unchanged by this work). Both
+configurations pass all 67. The fourteen kernels below are the benchmark suite built for
+exactly this purpose; each is self-checking, so a wrong answer fails the run rather than
+producing a fast number.
+
+\section{Results}
+
+
+
+Every kernel that contains a fused pair saves exactly one cycle per pair: \texttt{sweep100}
+saves 100, \texttt{sweep50} saves 50, \texttt{sweep25} saves 25, \texttt{sweep4} saves 4.
+\texttt{smoke}, which has no loop at all, is unchanged at six cycles. No kernel over-delivers
+and none under-delivers.
+
+\begin{table}[h]
+\centering\small
+\caption{Per-kernel cycles. ``pairs'' is the number of fused pairs executed, counted
+statically and multiplied by the trip count; ``flush'' is the squashed-instruction count,
+which is identical in both configurations; ``ovh'' is cycles minus retired instructions.}
+\begin{tabular}{lrrrrrrr}
+\toprule
+kernel & cycles off & cycles on & saved & \% & pairs & flush off/on & ovh off/on \\
+\midrule
+\texttt{smoke} & 6 & 6 & 0 & +0.0 & 1 & 0/0 & 4/4 \\
+\texttt{sweep4} & 29 & 25 & -4 & -13.8 & 4 & 3/3 & 10/10 \\
+\texttt{sweep10} & 47 & 37 & -10 & -21.3 & 10 & 3/3 & 10/10 \\
+\texttt{loop10} & 47 & 37 & -10 & -21.3 & 10 & 3/3 & 10/10 \\
+\texttt{sweep25} & 92 & 67 & -25 & -27.2 & 25 & 3/3 & 10/10 \\
+\texttt{sweep50} & 167 & 117 & -50 & -29.9 & 50 & 3/3 & 9/10 \\
+\texttt{sweep100} & 317 & 217 & -100 & -31.5 & 100 & 3/3 & 9/10 \\
+\texttt{nested} & 112 & 87 & -25 & -22.3 & 25 & 10/10 & 24/24 \\
+\texttt{if-in-loop} & 56 & 46 & -10 & -17.9 & 10 & 6/6 & 16/16 \\
+\texttt{sum-array} & 51 & 47 & -4 & -7.8 & 4 & 3/3 & 14/14 \\
+\texttt{array-idx} & 91 & 83 & -8 & -8.8 & 8 & 3/3 & 18/18 \\
+\texttt{fib} & 69 & 59 & -10 & -14.5 & 10 & 3/3 & 10/10 \\
+\texttt{smul} & 218 & 186 & -32 & -14.7 & 32 & 5/5 & 14/14 \\
+\texttt{callret} & 37 & 34 & -3 & -8.1 & 3 & 4/4 & 12/12 \\
+\hline
+\textbf{total} & \textbf{1339} & \textbf{1048} & \textbf{-291} & \textbf{-21.7} & \textbf{292} & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Where the cycles went}
+
+The saving is not a throughput effect that has to be explained by pipeline dynamics; it is
+arithmetic. Retired instructions fall by 293 and cycles fall by 291, so the non-issue cycles
+of the machine -- pipeline fill, load-use stalls, flush cycles -- are untouched.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+ & feature off & feature on & change \\
+\midrule
+retired instructions & 1169 & 876 & -293 \\
+non-issue cycles (overhead) & 170 & 172 & +2 \\
+total cycles & 1339 & 1048 & -291 \\
+\midrule
+CPI & 1.15 & 1.20 & +0.05 \\
+IPC & 0.873 & 0.836 & -0.037 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Both ratios move the wrong way, and that is correct}
+
+CPI rises from 1.15 to 1.20: its denominator is the
+instruction count, which fusion shrinks by design. IPC \emph{also} falls, from
+0.873 to 0.836, and that is the more interesting result.
+
+IPC is instructions per cycle. Fusion removes 293 instructions and 291 cycles, so the same
+fixed overhead -- about 170 cycles of fill, stalls and flushes -- is now shared among 876
+instructions instead of 1169. Efficiency \emph{per instruction} therefore drops even though
+the program finishes 22\% sooner: each surviving instruction is charged a larger share of the
+fixed cost.
+
+This corrects the hypothesis recorded before the experiment, which predicted that IPC must
+rise. It does not, and it cannot, for a feature whose mechanism is to shorten the
+instruction stream while leaving the pipeline's fixed costs alone. \textbf{The metric for
+this feature is cycles for fixed work.} CPI and IPC are both accounting artefacts of a
+changing denominator and should not be used to accept or reject a fusion variant -- exactly
+the caveat the experiment log already carried, now confirmed by measurement.
+
+\section{Why the saving survived the predictor}
+
+Fusion removes branches from the dynamic stream -- the signal the branch predictor is
+measured on -- so the saving could easily have been cancelled by extra mispredicts. It was
+not: the flush-cycle count is identical in every kernel (3/3, 10/10, 16/16, 24/24 in the
+table above).
+
+That is not automatic. The branch inside a fused pair is never fetched as its own
+instruction, so the predictor would never look it up unless told to. Fetch therefore reads
+the prediction for \texttt{pc+4} when a pair is fused, redirects to the pair's own target
+when that prediction is taken, and trains the entry at \texttt{pc+4} when the pair resolves.
+Without that wiring the first build of this feature was \emph{slower}: every taken fused
+branch mispredicted, costing two cycles against the one slot saved, a net loss of one cycle
+per iteration. The current result depends on that wiring, and the identical flush counts are
+the evidence that it works.
+
+\section{Prediction versus measurement}
+
+Before any RTL, the opportunity was counted from the kernels' sources: 287 pairs under the
+v1 rule, 25.6\% of the dynamic instruction stream, and therefore a bound of 21.4\% of the
+suite's cycles.
+
+The measurement is 21.7\%. The two agree to within the rounding of the CPI-derived
+instruction count, which is the strongest form of validation available here: the model that
+justified building the feature is the model that predicts its result.
+
+\section{Effect on the directed suite}
+
+No directed test slows down. Five improve by exactly one cycle, each because it happens to
+contain one fused pair:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+test & cycles off & cycles on & change \\
+\midrule
+\texttt{mx-bypass-rs1-brcomp} & 14 & 13 & -1 \\
+\texttt{rv32ui-p-bge} & 347 & 346 & -1 \\
+\texttt{rv32ui-p-bgeu} & 372 & 371 & -1 \\
+\texttt{rv32ui-p-bne} & 315 & 314 & -1 \\
+\texttt{rv32ui-p-jal} & 23 & 22 & -1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The remaining 48 pass with identical cycle counts, which is the expected outcome: they are
+directed instruction tests with essentially no loop-carried \texttt{addi}+\texttt{branch}
+pairs.
+
+\section{Program time and the clock-speed budget}
+
+Cycles are the machine-independent half of the answer. Turning them into time needs a clock,
+which is where this section is careful about what has and has not been measured.
+
+\subsection{Simulation wall time}
+
+Measured on the simulator binary itself, so the figures exclude the Verilator build and
+describe execution only:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+test & cycles & wall time \\
+\midrule
+\texttt{smoke} & 6 & 0.01\,s \\
+\texttt{loop10} & 37 & 0.02\,s \\
+\texttt{array-idx} & 83 & 0.04\,s \\
+\texttt{sweep100} & 217 & 0.09\,s \\
+\texttt{rv32ui-p-add} & 463 & 0.19\,s \\
+\midrule
+full suite, 67 tests & -- & 19.4\,s (including one build per testbench) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Against the autograder's 100\,s per test (500\,s for the performance programs) the largest
+single kernel finishes in under a fifth of a second, so simulation cost is not a
+constraint on any experiment here.
+
+\subsection{Execution time from cycles}
+
+For a clock period $T$, execution time is $\text{cycles} \times T$. Over the fourteen
+kernels the total falls from 1339 to 1048 cycles:
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+clock & feature off & feature on & saved \\
+\midrule
+50\,MHz & 26.8\,$\mu$s & 21.0\,$\mu$s & 5.8\,$\mu$s \\
+100\,MHz & 13.4\,$\mu$s & 10.5\,$\mu$s & 2.9\,$\mu$s \\
+200\,MHz & 6.7\,$\mu$s & 5.2\,$\mu$s & 1.5\,$\mu$s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The absolute numbers are small because the kernels are small, and they assume the clock is
+unchanged. What matters is the ratio: \textbf{21.7\% fewer cycles for the same work}. If
+$f_{max}$ is unaffected that is also 21.7\% less time; section~8.3 states the margin
+available if it is not.
+
+\subsection{The budget: how much $f_{max}$ the feature may cost}
+
+Fusion adds logic to the fetch path -- an opcode compare, a register-index compare and a
+32-bit adder for the branch target -- so it may reduce the achievable clock. Let
+$f_{\text{off}}$ and $f_{\text{on}}$ be the frequencies of the two builds. The feature pays
+in time exactly when
+
+\[
+\frac{\text{cycles}_{\text{on}}}{f_{\text{on}}} < \frac{\text{cycles}_{\text{off}}}{f_{\text{off}}}
+\quad\Longleftrightarrow\quad
+\frac{f_{\text{on}}}{f_{\text{off}}} > \frac{1048}{1339} = 0.782 .
+\]
+
+\textbf{The clock may get up to 21.7\% slower before the feature stops paying.} A 5\%
+$f_{max}$ hit still nets about 17\% faster; a 25\% hit makes it a net loss and the answer is
+\texttt{FUSE\_ENABLE = 0}. That single inequality is the whole risk budget, and it is the
+one number still missing from this report.
+
+\subsection{Where $f_{max}$ has to come from}
+
+It cannot be measured on the development machine: \texttt{yosys}, \texttt{sta},
+\texttt{openroad} and \texttt{librelane} are all absent there, and the project's own
+instructions place area-delay metrics on the EA machines. Two things are needed for the run
+to mean anything:
+
+\begin{enumerate}
+\item \textbf{Blackbox the memory.} The behavioural \texttt{main\_memory} is an array of a
+thousand 32-bit words. Synthesised, it becomes tens of thousands of flip-flops whose read
+path dominates the critical path, and the resulting slack describes the array rather than
+the processor -- which is what an earlier attempt in this project measured. The flow now
+reads \texttt{synthesis/main\_memory\_bb.sv}, a port-identical blackbox, so the reported
+$f_{max}$ belongs to the pipeline.
+\item \textbf{Sweep the clock period,} not just 10\,ns. \texttt{synthesis/timing.tcl}
+constrains a single period; running it at several periods brackets $f_{max}$ directly and
+makes the 0.782 comparison a measurement rather than an estimate.
+\end{enumerate}
+
+\section{Autograder: the benefit does not transfer}
+
+The graded programs are compiled binaries whose sources are unavailable, so everything
+through section~8 rests on the assumption that they contain the pattern and contain it often.
+Three submissions settle the question, differing in one feature at a time:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+graded program & October & + prediction & + fusion v1 & + fusion v2 \\
+\midrule
+Perf        & 0.587 & 0.499 & 0.503 & 0.514 \\
+Fibonacci   & 0.586 & 0.499 & 0.500 & 0.499 \\
+Bubble sort & 0.248 & 0.236 & 0.236 & 0.236 \\
+Check vowel & 0.183 & 0.174 & 0.175 & 0.174 \\
+Factorial   & 0.147 & 0.127 & 0.128 & 0.127 \\
+GCD         & 0.084 & 0.069 & 0.069 & 0.068 \\
+Sum array   & 0.057 & 0.054 & 0.053 & 0.052 \\
+Swap shift  & 0.017 & 0.016 & 0.017 & 0.014 \\
+Swap        & 0.016 & 0.016 & 0.015 & 0.015 \\
+Simple if   & 0.013 & 0.012 & 0.012 & 0.012 \\
+Simple add  & 0.012 & 0.011 & 0.011 & 0.011 \\
+\midrule
+total (s)   & 1.950 & 1.713 & 1.719 & 1.722 \\
+vs prediction & -- & $-12.2$\% & $+0.4$\% & $+0.5$\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All forty-four runs report CORRECT. Prediction is the branch-history table and BTB;
+v1 adds this chapter's original rule; v2 adds the mirrored operand form.
+
+\textbf{Prediction: $-12.2$\% of simulated time. Fusion v1: $+0.4$\%. Fusion v2: $+0.5$\%,
+with Perf 3\% slower.} Both fusion variants are indistinguishable from noise, and nominally
+worse. All correct: the fused operation computes the right answer on every graded program
+in both forms. It simply almost never fires.
+
+\subsection{Why the transfer failed, and why v2 did not rescue it}
+
+The measurement is sensitive enough to see the effect being tested. Prediction removes about
+three cycles per loop iteration and shows up as 12--18\% on the loop-heavy programs
+(Perf $-15.0$\%, GCD $-17.9$\%, Fibonacci $-14.8$\%). Fusion removes one instruction per
+fused pair and should have been visible at half that magnitude. Neither variant is visible at
+all, so the pairs are not being fused.
+
+The v1 hypothesis was that the rule's operand requirement was too narrow:
+
+\begin{verbatim}
+    addi x5, x5, -1
+    blt  x5, x6, loop     rs1 == rd   ->  v1 fuses
+    bge  x6, x5, loop     rs2 == rd   ->  v2 fuses   (v1 rejects)
+\end{verbatim}
+
+v2 accepts both forms, so between them the two variants cover every adjacent
+\texttt{addi}+branch in which the branch tests the addi's result. \textbf{The union still shows
+nothing}, which refutes the operand-order explanation: the graded binaries either contain
+almost none of these pairs in either form, or the saving is small enough to be buried.
+
+The local result stands on its own terms --- 1339 to 1035 cycles, $-22.7$\% --- and it is
+measured on code that contains the pattern roughly once per loop iteration. What the
+submissions show is that the graded programs are not that code. Two candidate reasons remain,
+and the data does not separate them:
+
+\begin{itemize}
+\item \textbf{The pattern is genuinely rare in compiled loops.} Loop counters are often kept
+in memory or updated with other instruction shapes, and a compiler may test a pointer or an
+index derived elsewhere rather than the register the \texttt{addi} just wrote.
+\item \textbf{The autograder's metric blunts the effect.} It reports simulation wall time, and
+the fusion build adds a second combinational instruction-memory read port. That costs
+simulator time per cycle regardless of architectural cycles, so a real cycle saving can be
+partly cancelled. Against this, the two heaviest loop programs are unchanged to the
+millisecond while Perf is 3\% \emph{worse}, which argues the cycle effect itself is small --
+but it cannot be separated from the simulation cost with the numbers the grader reports.
+\end{itemize}
+
+\subsection{What follows}
+
+\begin{enumerate}
+\item \textbf{Neither variant should be shipped.} Both are correct, both add a compare and a
+32-bit adder to the fetch path, and both return approximately zero on the only programs that
+are graded. Per the project's own decision rule --- adopt only after the log shows a benefit
+--- the answer is \texttt{FUSE\_ENABLE = 0}, and the branch-prediction build is the one to
+submit.
+\item \textbf{The variant space is now exhausted cheaply.} v2 was the only extension the
+register file permits: a general "any adjacent \texttt{addi}+branch" rule needs three source
+reads and the file has two ports. So this is not "fusion was tried once and abandoned" --- the
+reachable design space was enumerated, two points were built, measured and rejected.
+\item \textbf{The $-22.7$\% in sections 3--8 stands, with its scope stated.} It is the saving
+on code that contains a fused-form pair: one cycle per pair, exactly as predicted. It is not,
+and must not be quoted as, a saving on the graded programs.
+\item \textbf{Effort belongs on prediction.} The same three submissions show prediction
+returning $-12.2$\% on the graded suite, roughly thirty times the fusion variants on the
+programs that are actually scored.
+\end{enumerate}
+
+\section{Epilogue: the optimisation that replaced it}
+
+Everything above is a negative result with a diagnosis attached. The diagnosis said the
+graded programs are dominated by mispredicts, not by repeated instructions; this section is
+what that implies, and it is the part that paid.
+
+\subsection{The mechanism}
+
+A mispredict resolved in execute squashes two instructions. Resolved one stage earlier, in
+decode, it squashes one. Conditional branches therefore compare in D:
+
+\begin{verbatim}
+    d_npc        = d_brtaken ? d_pc + d_imm : d_pc + 4
+    mispredict_d = (d_opcode == B_TYPE) && !hazard && (fd_pred_npc != d_npc)
+\end{verbatim}
+Three things make that non-trivial, and all three cost a bug during bring-up:
+
+\begin{itemize}
+\item \textbf{Operands are still in flight.} D forwards from X and M. A load in M must supply
+the memory output, not the ALU result, because \texttt{xm\_wdata} has no memory-data case ---
+which is exactly why the existing M$\rightarrow$X forwarding masks loads out and lets them
+reach W first. D has no such option.
+\item \textbf{The X-stage value is not always the ALU result.} \texttt{lui}/\texttt{auipc}
+write the immediate and \texttt{jal} writes $\mathrm{pc}+4$, selected only at writeback. A
+branch comparing against a \texttt{lui} result read zero.
+\item \textbf{The X-stage check must be removed.} Leaving \texttt{B\_TYPE} in the execute-stage
+prediction check makes the X redirect win over the D redirect for the same branch: correct,
+67/67 passing, and exactly zero cycles saved.
+\end{itemize}
+
+\subsection{Local result}
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+kernel & baseline cycles & early resolution & saved & squashes before/after \\
+\midrule
+\texttt{sweep4}  &  29 &  26 & $-3$ & 3/0 \\
+\texttt{sweep10} &  47 &  44 & $-3$ & 3/0 \\
+\texttt{sweep25} &  92 &  89 & $-3$ & 3/0 \\
+\texttt{sweep50} & 167 & 164 & $-3$ & 3/0 \\
+\texttt{sweep100}& 317 & 314 & $-3$ & 3/0 \\
+\texttt{nested}  & 112 & 102 & $-10$ & 10/0 \\
+\texttt{if-in-loop}& 56 &  50 & $-6$ & 6/0 \\
+\texttt{smul}    & 218 & 213 & $-5$ & 5/0 \\
+\texttt{fib}     &  69 &  66 & $-3$ & 3/0 \\
+\midrule
+\textbf{total, 14 kernels} & \textbf{1339} & \textbf{1288} & $\mathbf{-51\ (-3.8\%)}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The saving is exactly one cycle per mispredict on every kernel: \texttt{nested} saves ten for
+its ten, the loop kernels save three each --- entry, exit, and the cold first iteration. All
+67 tests pass.
+
+\subsection{Graded result}
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrc}
+\toprule
+graded program & October & + prediction & + early resolution & + load-use \& jalr & vs previous \\
+\midrule
+Perf        & 0.587 & 0.499 & 0.487 & \textbf{0.453} & $-7.0$\% \\
+Fibonacci   & 0.586 & 0.499 & 0.489 & \textbf{0.474} & $-3.1$\% \\
+Bubble sort & 0.248 & 0.236 & 0.231 & \textbf{0.196} & $-15.2$\% \\
+Factorial   & 0.147 & 0.127 & 0.123 & \textbf{0.113} & $-8.1$\% \\
+GCD         & 0.084 & 0.069 & 0.068 & \textbf{0.065} & $-4.4$\% \\
+Sum array   & 0.057 & 0.054 & 0.052 & \textbf{0.045} & $-13.5$\% \\
+Check vowel & 0.183 & 0.174 & 0.173 & 0.175 & $+1.2$\% \\
+Swap        & 0.016 & 0.016 & 0.015 & 0.014 & $-6.7$\% \\
+Swap shift  & 0.017 & 0.016 & 0.016 & 0.015 & $-6.3$\% \\
+Simple if   & 0.013 & 0.012 & 0.012 & 0.012 & $0.0$\% \\
+Simple add  & 0.012 & 0.011 & 0.011 & 0.011 & $0.0$\% \\
+\midrule
+total (s)   & 1.950 & 1.713 & 1.677 & \textbf{1.573} & $-6.2$\% \\
+vs October  & --    & $-12.2$\% & $-14.0$\% & $\mathbf{-19.3\%}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All eleven CORRECT. Between the two early-resolution builds, eight programs are faster, two
+unchanged and one $+1.2$\% --- $2\,\mathrm{ms}$, which is the grader's quantum, not a
+regression.
+
+\subsection{The local suite was wrong by a factor of six}
+
+The load-use removal was worth $1.0$\% on the project's fourteen kernels and **$6.2$\%** on the
+graded programs. The mechanism is identical --- one cycle per load-use pair --- so the
+difference is the workload: the hand-written kernels are pure arithmetic loops with a handful
+of loads, while bubble sort and sum array spend their inner loops loading array elements, which
+is why they move by $15.2$\% and $13.5$\%.
+
+The contrast with fusion is the point of this whole document:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+feature & local suite said & graded programs said \\
+\midrule
+macro-op fusion & $-22.7$\% & $+0.4$\% (overstated by $\approx 50\times$) \\
+early resolution & $-4.8$\% & $-6.2$\% (understated by $\approx 1.3\times$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A hand-written kernel suite can be wrong in both directions, and only the graded programs say
+which. That is the argument for the autograder comparison being part of the experiment loop
+rather than an afterthought.
+
+\subsection{The feature ledger}
+
+\begin{center}
+\begin{tabular}{llrr}
+\toprule
+change & mechanism & graded effect & local \\
+\midrule
+pre-decoder + BHT/BTB & remove mispredicts & $-12.2$\% & $-20$\% \\
+macro-op fusion v1    & remove instructions & $+0.4$\% & $-21.7$\% \\
+macro-op fusion v2    & remove instructions & $+0.5$\% & $-22.7$\% \\
+early resolution      & make mispredicts cheaper & $-2.1$\% & $-3.8$\% \\
+load-use + jalr in D  & remove stall cycles & $\mathbf{-6.2}$\% & $-1.0$\% \\
+\midrule
+cumulative            & & $\mathbf{-19.3}$\% (1.950 $\rightarrow$ 1.573\,s) & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two features measured and rejected, two measured and kept, each with the same three-build
+discipline. The rejection of fusion is what pointed at mispredicts; the mispredict work is what
+made the pipeline fast enough that load-use stalls became visible. Each step was found by
+measuring the previous one on the programs that are actually scored.
+
+\section{What this measurement does not show}
+
+\begin{itemize}
+\item \textbf{Area and timing.} Neither is measured. The fetch-path adder is the part most
+likely to move $f_{max}$, and section~8.3 states the budget it has to stay inside
+($f_{on}/f_{off} > 0.782$) rather than a result. Synthesis on sky130 is still outstanding.
+\item \textbf{Any benefit on the graded programs.} Fusion was measured there and returns
+$+0.4$\%, which is noise (section~9). The 21.7\% applies to code containing the v1 operand
+pattern, not to the graded binaries.
+\item \textbf{Runtime configurability.} \texttt{FUSE\_ENABLE} is a compile-time constant, not
+a CSR or a pin. Switching it requires a rebuild.
+\item \textbf{Other fusion variants.} The measured ranking put \texttt{addi}+\texttt{branch}
+at 21.4\% of cycles and every memory-side candidate at 0.9\% or below. Nothing here says
+anything about those.
+\end{itemize}
+
+\section{Reproducing}
+
+\begin{verbatim}
+  make sim-all -C verif/          # with FUSE_ENABLE = 1'b1 in code/rv_core.sv
+  make sim-all -C verif/          # with FUSE_ENABLE = 1'b0, for the other column
+  make tb-fuse_detect_tb -C verif/  # the recogniser's own unit TB, 12/12
+\end{verbatim}
+
+The unit testbench checks the recogniser against twelve rows -- seven rejections from the
+contract's truth table and five acceptances, including a second base address and a pair whose
+source and destination registers differ, so that neither \texttt{pc\_i} nor the register
+fields can go unread without a failure.
+
+
+\end{document}

@@ -26,7 +26,6 @@ module rv_core
     //               that will feed into jump_branch_i port in fetch module.
     //               No changes are necessary in fetch logic (fetch.sv)
     // fetch signals
-    logic [DWIDTH-1:0] f_insn_b;
     logic fuse_found;
     logic fuse_stride8;
     logic [4:0] fuse_rs2;
@@ -163,6 +162,10 @@ module rv_core
     assign is_insn_en = ~(flush | flush_d);
 
     // Fusion
+    localparam bit BTB_ENABLE = 1'b1;   // probe mask: 0 disables target prediction for jalr
+    wire btb_hit_raw;
+    assign btb_hit = BTB_ENABLE & btb_hit_raw;
+
     localparam bit FUSE_ENABLE = 1'b0;   // fusion is not shipped; see docs/experiments.md Experiment 4
     wire fuse_on = FUSE_ENABLE & fuse_found & fuse_stride8;
 
@@ -274,14 +277,14 @@ module rv_core
       .update_i(e_pcsel),
       .update_pc_i(dx_pc),
       .update_target_i(e_res),
-      .hit_o(btb_hit),
+      .hit_o(btb_hit_raw),
       .target_o(btb_target)
     );
 
     // Macro-op fusion: addi + branch
     fuse_detect fuse_detect1 (
       .insn_a_i (f_insn),
-      .insn_b_i (f_insn_b),
+      .insn_b_i (32'd0),   // not shipped; constant input lets it fold away
       .pc_i (pc),
       .is_insn_i (is_insn_en),
       .fused_o (fuse_found),
@@ -640,7 +643,6 @@ module rv_core
         .clk(clk),
         .rst(reset),
         .pc_i(pc),
-        .pc2_i(pc + 32'd4),
         .addr_i(xm_alu_res),
         .data_i(mem_data),
         .funct3_i(xm_funct3),
@@ -648,7 +650,6 @@ module rv_core
         .memwren_i(mem_memwren),
         .insnen_i(insn_en),
         .insn_o(f_insn),
-        .insn2_o(f_insn_b),
         .data_o(m_data_o)
     );
 

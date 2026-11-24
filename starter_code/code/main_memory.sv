@@ -33,7 +33,6 @@ module main_memory #(
     input  logic clk,
     input  logic rst,
     input  logic [AWIDTH-1:0] pc_i, // instruction address
-    input  logic [AWIDTH-1:0] pc2_i, // Macro op fusion
     input  logic [AWIDTH-1:0] addr_i,           // address of where to write to memory
     input  logic [DWIDTH-1:0] data_i,           // data to be written to memory
     input  logic [(DWIDTH/8)-1:0] bytelane_i,   // bytelane for 32-bit memory blocks (like RAM)
@@ -42,7 +41,6 @@ module main_memory #(
     input  logic insnen_i,                      // instruction read enable
     // outputs
     output logic [DWIDTH-1:0] insn_o,           // instruction output
-    output logic [DWIDTH-1:0] insn2_o,
     output logic [DWIDTH-1:0] data_o            // read data from memory output
     // ------------------- //
 );
@@ -101,7 +99,6 @@ module main_memory #(
     endfunction
 
     assign insn_o = read_insn(pc_i);
-    assign insn2_o = read_insn(pc2_i);
 
     // Shift byte address from memory controller to word index for memory
     logic [AWIDTH-1:0] address;
