@@ -5,20 +5,13 @@ plugin -i slang
 # first setup the include paths
 verilog_defaults -add -Icode/
 
-# NOTE: code/main_memory.sv (the behavioural instruction/data array) is deliberately
-# NOT read here. It is replaced by synthesis/main_memory_bb.sv, a port-identical
-# blackbox. Synthesising the array makes tens of thousands of flip-flops whose read
-# path dominates the critical path, so every fmax/timing number produced that way
-# describes the memory, not the pipeline. Keep the stub's ports in sync with
-# code/main_memory.sv; a missing port becomes a hierarchy error, which is the
-# failure you want.
 read_slang -Icode \
     code/branch_control.sv \
     code/decode.sv \
     code/alu.sv \
     code/fetch.sv \
     code/igen.sv \
-    synthesis/main_memory_bb.sv \
+    code/main_memory.sv \
     code/memory.sv \
     code/memory_controller.sv \
     code/control.sv \
