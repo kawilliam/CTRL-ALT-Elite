@@ -12,11 +12,12 @@
 
 set -e
 PERIODS="${PERIODS:-10 8 6 5 4 3 2.5 2}"
+SCRIPT="${SCRIPT:-synthesis/synthesis.ys}"
 
-echo "=== mapping (yosys) ==="
-yosys synthesis/synthesis.ys > synthesis/yosys.log 2>&1 || {
+echo "=== mapping (yosys) with $SCRIPT ==="
+yosys "$SCRIPT" > synthesis/yosys.log 2>&1 || {
     echo "yosys failed; see synthesis/yosys.log"; exit 1; }
-echo "netlist: synth.v ($(ls -la synth.v | awk '{print $5}') bytes)"
+echo "script: $SCRIPT  (synthesis_nomem.ys = pipeline only, memory blackboxed)"
 
 printf '%-12s %-14s %-12s %-10s\n' "constraint" "slack_ns" "period_min" "fmax_MHz"
 for P in $PERIODS; do
